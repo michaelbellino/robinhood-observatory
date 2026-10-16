@@ -1,5 +1,9 @@
 # Durable implementation handoff — 2026-10-16
 
+## Latest OAuth work
+
+The owner requested deeper troubleshooting rather than repeating the hosted consent attempt. A real native enrollment helper and owner-approved credential deposit are implemented; see NATIVE-CONNECTION.md. Do not use callback URL rewriting, token copying from another app, or borrowed platform IDs. Local tests: 132 passed, six PostgreSQL-only tests require CI. Live unauthenticated helper metadata/DCR preflight succeeded; no user consent or token was obtained. Deployment/CI results for this candidate must be read from its release evidence. Once deployed, the only necessary owner action is running the standalone helper on the same desktop as their browser and approving the normal owner/Robinhood screens. This does not need another Railway authorization or paid service. Live hosted reads/refresh and full-session observation remain pending.
+
 ## Latest steering: ChatGPT as the operating interface
 
 The owner explicitly requested native Robinhood MCP reads/writes and background ChatGPT operation. Live reads succeeded; the authorized non-trading write test added SPY to an empty watchlist, verified it, removed it, and verified restoration. No money moved. See `evidence/native-connector-2026-10-16.json` and `docs/CHATGPT.md`. Railway is already connected; do not ask the owner to authorize it again.

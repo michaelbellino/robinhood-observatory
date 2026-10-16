@@ -54,6 +54,34 @@ def test_pause_persists_new_connection(pg):
         assert s.get(State, 1).paused and s.get(State, 1).checkpoint["event"] == "synthetic"
 
 
+def test_concurrent_native_deposit_is_idempotent(pg, vault, settings):
+    from concurrent.futures import ThreadPoolExecutor
+    from sqlalchemy import select
+    from observatory.db import Audit
+    from observatory.enrollment import LocalEnrollment
+    from observatory.security import digest
+
+    enrollment = LocalEnrollment(pg, vault, settings)
+    ticket = enrollment.start(settings.owner_subject, 45678, digest("synthetic-proof"))["ticket"]
+    body = {
+        "proof": "synthetic-proof",
+        "client_id": "synthetic-client",
+        "redirect_uri": "http://127.0.0.1:45678/callback",
+        "token": {
+            "access_token": "synthetic-access",
+            "refresh_token": "synthetic-refresh",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+        },
+    }
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: enrollment.complete("Bearer " + ticket, body), range(2)))
+    assert all(result["connected"] for result in results)
+    with pg.session() as s:
+        rows = s.scalars(select(Audit).where(Audit.action == "local_enrollment_completed")).all()
+        assert len(rows) == 1 and s.get(State, 1).paused
+
+
 def test_migrations_on_empty_database(pg):
     Base.metadata.drop_all(pg.engine)
     subprocess.run(

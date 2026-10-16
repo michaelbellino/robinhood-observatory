@@ -7,6 +7,7 @@
 | Official Trading MCP endpoint and auth metadata | Verified, unauthenticated | Public metadata HTTP 200; evidence JSON retained |
 | Dynamic client registration | Response verified; consent acceptance unverified | HTTP 200 echoes Railway redirect but returns a shared default client; this does not prove redirect allowlisting |
 | Custom Railway-hosted OAuth | Blocked at consent, under investigation | Owner reports Allow failure; no app callback observed. See OAUTH-INVESTIGATION-2026-10-16.md; redirect restriction is not yet confirmed |
+| Native loopback enrollment alternative | Implemented; live consent pending | Real helper discovery/DCR response verified; local synthetic end-to-end PKCE + encrypted owner-approved deposit verified. See NATIVE-CONNECTION.md. No claim of successful hosted refresh yet |
 | PKCE, grants, client authentication | Metadata verified | S256, authorization_code + refresh_token, token endpoint auth none |
 | Read-only OAuth scope | Unsupported in advertised metadata | Only internal advertised; application read allowlist is the enforcement boundary |
 | Token lifetime, rotation, long-lived refresh, broker revocation | Live unverified | Failure/rotation simulations pass; no revocation endpoint advertised; local disconnect implemented |

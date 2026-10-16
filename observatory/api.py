@@ -20,6 +20,7 @@ from .broker import ReadOnlyBroker, BrokerError
 from .db import Database, State, Audit, PaperProposal, Secret, now
 from .domain import Paper
 from .oauth import RobinhoodOAuth, OAuthProblem
+from .enrollment import LocalEnrollment
 from .security import Vault, bearer_principal, principal, require_control
 from .service import status, history, change_pause, start_observation
 from .settings import Settings
@@ -51,6 +52,7 @@ def create_app(settings=None, database=None):
             client_kwargs={"scope": "openid", "code_challenge_method": "S256"},
         )
     broker_oauth = RobinhoodOAuth(db, vault, settings)
+    local_enrollment = LocalEnrollment(db, vault, settings)
     read = MCPServer(
         "Observatory reads", instructions="Stored read-only monitoring data. No brokerage tools."
     )
@@ -108,7 +110,8 @@ def create_app(settings=None, database=None):
         if actor is None and session.get("sub") == settings.owner_subject:
             actor = {"sub": session["sub"], "scope": "control", "method": "session"}
         protected = path.startswith(("/api/", "/mcp/", "/oauth/robinhood/"))
-        if protected and not actor:
+        credential_deposit = path == "/api/robinhood/local-complete" and request.method == "POST"
+        if protected and not actor and not credential_deposit:
             return JSONResponse(
                 {"detail": "Authentication required"}, status_code=401, headers={"WWW-Authenticate": "Bearer"}
             )
@@ -190,6 +193,15 @@ def create_app(settings=None, database=None):
     async def dashboard():
         return FileResponse(STATIC / "index.html")
 
+    @app.get("/local-connect")
+    async def local_connect_page(request: Request):
+        # Only public helper coordinates, never tokens or OAuth codes, may survive login.
+        port, challenge = request.query_params.get("port", ""), request.query_params.get("challenge", "")
+        if not re.fullmatch(r"[0-9]{4,5}", port) or not 1024 <= int(port) <= 65535 or not re.fullmatch(r"[a-f0-9]{64}", challenge):
+            raise HTTPException(400, "Launch the local connection helper first")
+        request.session["enrollment_return"] = f"/local-connect?port={int(port)}&challenge={challenge}"
+        return FileResponse(STATIC / "local-connect.html")
+
     @app.get("/auth/login")
     async def login(request: Request):
         if not (
@@ -215,9 +227,10 @@ def create_app(settings=None, database=None):
         if not claims or claims.get("sub") != settings.owner_subject or claims.get("iss") != expected_issuer:
             request.session.clear()
             raise HTTPException(403, "This application is limited to its configured owner")
+        enrollment_return = request.session.get("enrollment_return", "/")
         request.session.clear()
         request.session.update(sub=claims["sub"], csrf=secrets.token_urlsafe(32))
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse(enrollment_return, status_code=303)
 
     @app.post("/api/logout")
     async def logout(request: Request):
@@ -282,6 +295,29 @@ def create_app(settings=None, database=None):
     async def connect():
         actor = require_control()
         return {"authorization_url": await broker_oauth.begin(actor["sub"])}
+
+    @app.post("/api/robinhood/local-enrollment")
+    async def begin_local_enrollment(request: Request):
+        actor = require_control()
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise HTTPException(400, "Invalid enrollment request")
+        return local_enrollment.start(actor["sub"], body.get("port"), body.get("challenge"))
+
+    @app.post("/api/robinhood/local-complete")
+    async def complete_local_enrollment(request: Request):
+        # Independent narrow bearer authentication; owner session alone is insufficient.
+        content = bytearray()
+        async for chunk in request.stream():
+            if len(content) + len(chunk) > 40000:
+                raise HTTPException(413, "Enrollment payload too large")
+            content.extend(chunk)
+        import json
+        try:
+            body = json.loads(content)
+        except (ValueError, UnicodeError):
+            raise HTTPException(400, "Invalid enrollment payload") from None
+        return local_enrollment.complete(request.headers.get("authorization"), body)
 
     @app.get("/api/robinhood/diagnostics")
     async def connection_diagnostics():

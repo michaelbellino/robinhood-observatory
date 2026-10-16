@@ -87,6 +87,7 @@ class RobinhoodOAuth:
             return {
                 "redirect_uri": self.settings.public_url.rstrip("/") + "/oauth/robinhood/callback",
                 "registration_response_saved": bool(registration),
+                "enrollment_method": registration.get("enrollment", "hosted_callback") if registration else None,
                 "client_id_sha256_prefix": (digest(registration["client_id"])[:12] if registration else None),
                 "registration_proves_redirect_accepted_at_consent": False,
                 "credentials_saved": token_saved,

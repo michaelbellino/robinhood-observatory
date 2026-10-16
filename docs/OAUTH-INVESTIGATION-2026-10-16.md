@@ -13,6 +13,14 @@
 
 The failure is before the application's callback, in the browser-to-Robinhood consent step. It can still be caused by our client/redirect configuration. A shared-client redirect restriction is a hypothesis, **not a confirmed root cause**. Other broker validation or verification failures can produce the same page. Neither a broker outage nor an account eligibility failure is established.
 
+## Further investigation and native enrollment candidate
+
+The later production attempt at 17:44:57 UTC also prepared authorization successfully; no broker callback appeared in logs inspected through the follow-up investigation. Fresh official metadata still matches the application's endpoints, scope, resource and PKCE parameters. Changing hosting providers, disabling issuer checks, dropping PKCE or repeatedly trying the same hosted flow has no evidentiary basis.
+
+A newly located [Socratic-Trade guide](https://github.com/Simple-With-Us/Socratic-Trade/blob/main/docs/robinhood-connection-guide.md) independently reports public-HTTPS redirect rejection for default dynamic clients. Its proposed address-bar rewrite/callback paste is not used here. Nor are its claimed support email, extra scope or indefinite token lifetime treated as official facts. The [M5Market native OAuth implementation](https://github.com/M5Market/rh-mcp) supplies another concrete local-client example; its generic brokerage proxy is not adopted.
+
+`scripts/connect_robinhood.py` now implements real native enrollment with an actual loopback listener and local code exchange. An owner-approved, short-lived, proof-bound deposit places only this new application's credentials in the hosted vault. See NATIVE-CONNECTION.md for the threat boundaries, exact owner action and live-verification limits. Live discovery/registration succeeded without authentication using this helper; the returned client-ID hash prefix remains `b1c8cf32daad`. This is a candidate solution grounded in Robinhood's documented localhost support, not proof of consent success or blanket broker approval of remote hosting. A desktop browser's Robinhood approval is the remaining unavoidable step for testing it.
+
 The next discriminating evidence is the failed consent request's HTTP status and non-secret error `detail`/`error` value. This exists in the owner's browser Network response, not in Railway's logs. Do not request/export a HAR, cookies, request headers, tokens, authorization codes, full authorization URLs, or unrelated account responses. Do not impersonate a known platform's client, borrow its redirect, weaken issuer/PKCE validation, or invoke private login/consent endpoints as a workaround.
 
 ## Application corrections

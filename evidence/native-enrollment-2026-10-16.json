@@ -1,0 +1,24 @@
+{
+  "date_utc": "2026-10-16",
+  "native_preflight": {
+    "live_public_metadata": "verified",
+    "dynamic_registration_response": "verified",
+    "client_id_sha256_prefix": "b1c8cf32daad",
+    "loopback_host": "127.0.0.1",
+    "issuer_parameter_required": true,
+    "consent_attempted": false,
+    "tokens_obtained": false
+  },
+  "local_tests": {
+    "tests": "138",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "6",
+    "time": "3.266"
+  },
+  "test_data": "synthetic only; real loopback HTTP exercised",
+  "postgresql_tests": "CI required",
+  "live_hosted_reads_and_refresh": "pending owner native consent",
+  "real_brokerage_mutations": false,
+  "additional_services_or_paid_resources": false
+}
