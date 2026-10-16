@@ -17,8 +17,30 @@
     "time": "3.266"
   },
   "test_data": "synthetic only; real loopback HTTP exercised",
-  "postgresql_tests": "CI required",
+  "postgresql_tests": "passed in CI, including concurrent one-time deposit and isolated restoration",
   "live_hosted_reads_and_refresh": "pending owner native consent",
   "real_brokerage_mutations": false,
-  "additional_services_or_paid_resources": false
+  "additional_services_or_paid_resources": false,
+  "ci": {
+    "run_id": 38949961420,
+    "commit": "5e6712f74fd481baff4f9f531346308146be49ad",
+    "result": "138 passed, zero skips, 10.77 seconds",
+    "source_scan": "pass",
+    "dependency_audit": "pass",
+    "artifact_id": 12067841603,
+    "artifact_sha256": "9bec57caf74fb9cd1f5ca970f5ebb91f38681cc34259b844cdb2215e4113342b"
+  },
+  "web_deployment": {
+    "id": "890cef2b-d13b-4647-99e0-77fba77be862",
+    "status": "SUCCESS",
+    "commit": "5e6712f74fd481baff4f9f531346308146be49ad",
+    "observed_terminal_at_utc": "2026-10-16T18:51:35.578Z",
+    "rollback_commit": "936a4303904dbc9df4cc43a5788cb090f8f5a2c8"
+  },
+  "worker": "Unchanged compatible 936a4303904dbc9df4cc43a5788cb090f8f5a2c8; no live credentials or resume performed",
+  "helper_download": {
+    "http_status": 200,
+    "matches_source": true,
+    "sha256": "d460f3a967e46436821fb87ee948a5adf70175bf5e673997717eaaa18b72a759"
+  }
 }

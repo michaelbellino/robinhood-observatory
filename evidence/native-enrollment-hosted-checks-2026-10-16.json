@@ -1,0 +1,55 @@
+{
+  "date_utc": "2026-10-16",
+  "commit": "5e6712f74fd481baff4f9f531346308146be49ad",
+  "checks": [
+    {
+      "method": "GET",
+      "path": "/health/live",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/local-connect",
+      "status": 200,
+      "expected_form_present": true,
+      "cache_control": "no-store",
+      "referrer_policy": "no-referrer"
+    },
+    {
+      "method": "GET",
+      "path": "/static/local-connect.js",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/status",
+      "status": 401
+    },
+    {
+      "method": "GET",
+      "path": "/api/robinhood/diagnostics",
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/api/robinhood/local-enrollment",
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/api/robinhood/local-complete",
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/mcp/read/",
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/mcp/control/",
+      "status": 401
+    }
+  ],
+  "real_credentials_submitted": false
+}
