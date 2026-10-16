@@ -301,3 +301,37 @@ async def test_exchange_failure_never_retries_used_code(
     assert retry.value.code == "invalid_state"
     assert route.call_count == 1
     assert not oauth.diagnostics(settings.owner_subject)["credentials_saved"]
+
+
+def test_saved_native_connection_rejects_reconnect_without_broker_calls(
+    client, db, vault, control_headers, respx_mock
+):
+    with db.session() as session:
+        vault.put(session, "robinhood_tokens", {"access_token": "synthetic-existing"})
+        vault.put(session, "robinhood_client", {"client_id": "synthetic-native", "enrollment": "native_loopback"})
+    response = client.post("/api/robinhood/connect", json={}, headers=control_headers)
+    assert response.status_code == 409
+    assert "Verify account" in response.json()["detail"]
+    assert not respx_mock.calls
+    assert client.get("/api/status", headers=control_headers).json()["credentials_saved"] is True
+    with db.session() as session:
+        assert vault.get(session, "robinhood_client")["enrollment"] == "native_loopback"
+        assert vault.get(session, "robinhood_tokens")["access_token"] == "synthetic-existing"
+
+
+async def test_pending_hosted_callback_cannot_overwrite_native_credentials(
+    db, vault, settings, registration, respx_mock
+):
+    from fastapi import HTTPException
+    params = await start(db, vault, settings)
+    with db.session() as session:
+        vault.put(session, "robinhood_tokens", {"access_token": "synthetic-existing"})
+    exchange = respx_mock.post(TOKEN).respond(500)
+    with pytest.raises(HTTPException) as error:
+        await RobinhoodOAuth(db, vault, settings).callback(
+            settings.owner_subject, params["state"], "synthetic-code", ENDPOINT
+        )
+    assert error.value.status_code == 409
+    assert not exchange.called
+    with db.session() as session:
+        assert vault.get(session, "robinhood_tokens")["access_token"] == "synthetic-existing"

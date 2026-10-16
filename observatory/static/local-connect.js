@@ -8,7 +8,12 @@ async function loadLocal(){
   if(!r.ok)throw new Error("Sign-in could not be verified.");
   const s=await r.json();
   if(s.scope!=="control"||!s.csrf)throw new Error("The owner must authorize this helper.");
-  localCsrf=s.csrf;approve.hidden=false;statusText.textContent="Ready for your approval.";
+  localCsrf=s.csrf;
+  const stateResponse=await fetch("/api/status",{credentials:"same-origin"});
+  if(!stateResponse.ok)throw new Error("Connection status could not be verified.");
+  const state=await stateResponse.json();
+  if(state.credentials_saved){statusText.textContent="Robinhood credentials are already saved. Open the dashboard and choose Verify account; no new helper is needed.";approve.hidden=true;return;}
+  approve.hidden=false;statusText.textContent="Ready for your approval.";
 }
 approve.onclick=async()=>{approve.disabled=true;try{
   if(!Number.isInteger(port)||port<1024||port>65535||!/^[a-f0-9]{64}$/.test(challenge))throw new Error("Launch the helper again.");

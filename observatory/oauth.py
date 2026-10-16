@@ -8,9 +8,10 @@ import uuid
 from datetime import timedelta
 from urllib.parse import urlencode
 import httpx
+from fastapi import HTTPException
 from sqlalchemy import select
 from .broker import ENDPOINT, AuthorizationExpired
-from .db import OAuthFlow, Secret, Audit, aware, now
+from .db import OAuthFlow, Secret, Audit, State, aware, now
 from .security import digest
 
 RESOURCE_METADATA = "https://agent.robinhood.com/.well-known/oauth-protected-resource/mcp/trading"
@@ -117,6 +118,9 @@ class RobinhoodOAuth:
         return metadata
 
     async def begin(self, owner):
+        with self.db.session() as session:
+            if session.get(Secret, "robinhood_tokens"):
+                raise HTTPException(409, "Robinhood credentials are already saved. Use Verify account; do not reconnect.")
         async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
             attempt_id = str(uuid.uuid4())
             try:
@@ -160,12 +164,18 @@ class RobinhoodOAuth:
                     self.record(owner, "registration", "registration_invalid", attempt_id)
                     raise OAuthProblem("registration_invalid")
                 with self.db.session() as session:
+                    session.scalar(select(State).where(State.id == 1).with_for_update())
+                    if session.get(Secret, "robinhood_tokens"):
+                        raise HTTPException(409, "Robinhood credentials are already saved. Use Verify account; do not reconnect.")
                     self.vault.put(session, "robinhood_client", registration)
             state, verifier = secrets.token_urlsafe(32), secrets.token_urlsafe(64)
             challenge = (
                 base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
             )
             with self.db.session() as session:
+                session.scalar(select(State).where(State.id == 1).with_for_update())
+                if session.get(Secret, "robinhood_tokens"):
+                    raise HTTPException(409, "Robinhood credentials are already saved. Use Verify account; do not reconnect.")
                 session.add(
                     OAuthFlow(
                         state_hash=digest(state),
@@ -239,6 +249,9 @@ class RobinhoodOAuth:
             client_id = registration.get("client_id")
         if not client_id:
             fail("invalid_callback")
+        with self.db.session() as session:
+            if session.get(Secret, "robinhood_tokens"):
+                raise HTTPException(409, "Robinhood credentials are already saved. Use Verify account; do not reconnect.")
         try:
             async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
                 response = await client.post(
@@ -262,6 +275,9 @@ class RobinhoodOAuth:
             fail("token_invalid")
         token["client_id"] = client_id
         with self.db.session() as session:
+            session.scalar(select(State).where(State.id == 1).with_for_update())
+            if session.get(Secret, "robinhood_tokens"):
+                raise HTTPException(409, "Robinhood credentials are already saved. Use Verify account; do not reconnect.")
             self.vault.put(session, "robinhood_tokens", token)
         self.record(owner, "token_exchange", "credentials_saved", attempt_id)
         return {"refresh_token_issued": bool(token.get("refresh_token")), "expires_at": token["expires_at"]}

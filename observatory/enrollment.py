@@ -30,8 +30,10 @@ class LocalEnrollment:
         ticket = secrets.token_urlsafe(32)
         with self.db.session() as session:
             state = session.scalar(select(State).where(State.id == 1).with_for_update())
-            if not state.paused or session.get(Secret, "robinhood_tokens"):
-                raise HTTPException(409, "Pause and disconnect the existing brokerage connection first")
+            if session.get(Secret, "robinhood_tokens"):
+                raise HTTPException(409, "Robinhood credentials are already saved. Open the dashboard and choose Verify account; no new helper is needed.")
+            if not state.paused:
+                raise HTTPException(409, "Pause monitoring before starting a new connection")
             # Serialize issuance and invalidate earlier helper deposits for this owner.
             for row in session.scalars(select(OAuthFlow).where(OAuthFlow.owner == owner)).all():
                 if self.vault.decrypt(row.payload_cipher).get("kind") == "local_enrollment":

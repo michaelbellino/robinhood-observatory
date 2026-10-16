@@ -2,6 +2,7 @@ import logging
 import re
 import secrets
 import uuid
+import traceback
 from contextlib import asynccontextmanager, AsyncExitStack
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -26,6 +27,15 @@ from .service import status, history, change_pause, start_observation
 from .settings import Settings
 
 STATIC = Path(__file__).parent / "static"
+
+
+def log_request_failure(exc):
+    # Stack locations and exception type only: no values, provider text, or source lines.
+    frames = traceback.extract_tb(exc.__traceback__)
+    locations = [f"{Path(f.filename).name}:{f.lineno}:{f.name}" for f in frames if "/observatory/" in f.filename]
+    logging.getLogger("observatory").error(
+        "request_failed type=%s locations=%s", type(exc).__name__, ",".join(locations[-5:])
+    )
 
 
 def create_app(settings=None, database=None):
@@ -133,8 +143,8 @@ def create_app(settings=None, database=None):
         token = principal.set(actor)
         try:
             response = await call_next(request)
-        except Exception:
-            logging.getLogger("observatory").error("request_failed")
+        except Exception as exc:
+            log_request_failure(exc)
             response = JSONResponse({"detail": "Request failed; state remains unchanged"}, status_code=500)
         finally:
             principal.reset(token)
@@ -182,7 +192,7 @@ def create_app(settings=None, database=None):
     @app.exception_handler(Exception)
     async def unexpected_error(request, exc):
         # Never return or log provider exceptions containing authorization codes or token payloads.
-        logging.getLogger("observatory").error("request_failed")
+        log_request_failure(exc)
         return JSONResponse({"detail": "Request failed; monitoring state remains unchanged"}, status_code=500)
 
     @app.get("/health/live")

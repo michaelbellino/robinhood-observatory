@@ -1,7 +1,7 @@
 import uuid
 from datetime import timedelta
 from sqlalchemy import select
-from .db import State, Snapshot, Event, Analysis, PaperProposal, Audit, Observation, Work, aware, now
+from .db import State, Snapshot, Event, Analysis, PaperProposal, Audit, Observation, Work, Secret, aware, now
 from .domain import Quote
 from .calendar import next_full_session
 
@@ -32,6 +32,7 @@ def status(db):
             "real_trading": "disabled",
             "account": row.account_label,
             "account_verified": row.account_verified,
+            "credentials_saved": s.get(Secret, "robinhood_tokens") is not None,
             "paused": row.paused,
             "last_success": success.isoformat() if success else None,
             "data_age_seconds": age,
