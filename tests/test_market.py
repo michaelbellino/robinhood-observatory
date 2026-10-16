@@ -159,3 +159,23 @@ async def test_rotating_batches_cover_equities_and_options(configured, settings,
     assert result["batches"] == 3 and len(result["quotes"]) == 23
     assert result["missing_instruments"] == []
     assert any(q["asset"] == "option" for q in result["quotes"])
+
+
+async def test_recent_receipt_cannot_make_old_exchange_quotes_fresh(configured, settings, quote_broker):
+    row = equity()
+    old = (now() - timedelta(minutes=10)).isoformat()
+    row["quote"]["venue_bid_time"] = row["quote"]["venue_ask_time"] = old
+    quote_broker.call.return_value = {"results": [row]}
+    await refresh_quotes(configured, settings, quote_broker)
+    quote = market_status(configured)["quotes"][0]
+    assert quote["receipt_age_seconds"] < 5
+    assert quote["source_age_seconds"] >= 600 and quote["quote_freshness"] == "stale"
+
+
+async def test_missing_exchange_quote_time_is_unknown(configured, settings, quote_broker):
+    row = equity()
+    row["quote"].pop("venue_bid_time")
+    quote_broker.call.return_value = {"results": [row]}
+    await refresh_quotes(configured, settings, quote_broker)
+    quote = market_status(configured)["quotes"][0]
+    assert quote["source_age_seconds"] is None and quote["quote_freshness"] == "unknown"

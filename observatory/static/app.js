@@ -22,10 +22,10 @@ async function refreshMarket(){
  try{
   const m=await api("/api/market");
   text("market-status",m.status.replaceAll("_"," "));
-  text("quote-health",`${m.status.replaceAll("_"," ")} · ${m.quotes.length} cached quotes`);
+  text("quote-health",`${m.status.replaceAll("_"," ")} · ${m.quotes.filter(q=>q.quote_freshness==="fresh").length}/${m.quotes.length} quotes within 60s`);
   text("market-note",`Robinhood MCP polling · Last batch: ${timestamp(m.last_success)} · ${m.batch_target_seconds??30}s target per batch, subject to pacing. Missing: ${m.missing_instruments?.length??0}. Source times can remain old after close.`);
-  const rows=m.quotes.map(q=>({...q,bid_at_display:timestamp(q.bid_at),ask_at_display:timestamp(q.ask_at),received:timestamp(q.received_at)}));
-  table($("market-quotes"),rows,[["Instrument","instrument_id"],["Bid","bid"],["Ask","ask"],["Bid time","bid_at_display"],["Ask time","ask_at_display"],["Received","received"]]);
+  const rows=m.quotes.map(q=>({...q,bid_at_display:timestamp(q.bid_at),ask_at_display:timestamp(q.ask_at),received:timestamp(q.received_at),source_age:q.source_age_seconds===null?"Unknown":Math.round(q.source_age_seconds)+"s"}));
+  table($("market-quotes"),rows,[["Instrument","instrument_id"],["Bid","bid"],["Ask","ask"],["Source age","source_age"],["Quote state","quote_freshness"],["Bid time","bid_at_display"],["Ask time","ask_at_display"],["Received","received"]]);
  }catch(e){text("market-status","Quote cache unavailable");}
 }
 setInterval(refreshMarket,5000);

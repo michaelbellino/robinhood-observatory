@@ -28,7 +28,13 @@ def market_status(db):
         quotes = []
         for item in payload.get("quotes", []):
             quote = Quote.model_validate({k: v for k, v in item.items() if k != "asset"})
+            side_ages = [(now() - at).total_seconds() for at in (quote.bid_at, quote.ask_at) if at]
+            source_age = max(side_ages) if len(side_ages) == 2 else None
+            quote_state = "unknown" if source_age is None or quote.bid is None or quote.ask is None else (
+                "fresh" if min(side_ages) >= -5 and source_age <= 60 else "stale")
             quotes.append({**item, "trade_freshness": quote.freshness(now()),
+                           "quote_freshness": quote_state, "source_age_seconds": source_age,
+                           "source_freshness_max_age_seconds": 60,
                            "receipt_age_seconds": (now() - quote.received_at).total_seconds()})
         next_run = aware(market.next_run)
         status = "paused" if state.paused else market.status
