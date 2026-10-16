@@ -1,55 +1,51 @@
-# Capability matrix — 2026-10-16 UTC
+# Capability matrix — October 16, 2026
 
-“Verified” refers to the stated environment only. A local synthetic test is not hosted brokerage evidence. No previews, trading mutations or transfers were invoked. One explicitly authorized reversible watchlist write test succeeded and restored the original state.
+This public matrix describes implementation and public protocol verification. Customer account metadata, deployment identifiers and live acceptance results belong in private owner-controlled evidence. A synthetic test or advertised capability is not proof of brokerage execution support.
 
-| Capability | Status | Evidence / limit |
+| Capability | Status | Evidence / limitation |
 |---|---|---|
-| Official Trading MCP endpoint and auth metadata | Verified, unauthenticated | Public metadata HTTP 200; evidence JSON retained |
-| Dynamic client registration | Response verified; consent acceptance unverified | HTTP 200 echoes Railway redirect but returns a shared default client; this does not prove redirect allowlisting |
-| Custom Railway-hosted OAuth | Blocked at consent, under investigation | Owner reports Allow failure; no app callback observed. See OAUTH-INVESTIGATION-2026-10-16.md; redirect restriction is not yet confirmed |
-| Native loopback enrollment alternative | Implemented; live consent pending | Real helper discovery/DCR response verified; local synthetic end-to-end PKCE + encrypted owner-approved deposit verified. See NATIVE-CONNECTION.md. No claim of successful hosted refresh yet |
-| PKCE, grants, client authentication | Metadata verified | S256, authorization_code + refresh_token, token endpoint auth none |
-| Read-only OAuth scope | Unsupported in advertised metadata | Only internal advertised; application read allowlist is the enforcement boundary |
-| Token lifetime, rotation, long-lived refresh, broker revocation | Live unverified | Failure/rotation simulations pass; no revocation endpoint advertised; local disconnect implemented |
-| Existing ChatGPT connector account reads | Verified in that connector | Active selected account and caller access/type/options level rechecked; private results omitted from source |
-| Native connector reversible write | Verified, non-trading only | Added SPY to an empty watchlist, read back, removed, read back empty; evidence/native-connector-2026-10-16.json |
-| Native ChatGPT observation workflow | Packaged; scheduling pending | Repository-backed Stock Observatory skill uses existing tools; instructions do not hide mutation tools or prove durable scheduling |
-| Two-minute ChatGPT schedule | Unavailable in inspected account UI / not enabled | Signed-in Interval offers hours only; Custom starts at Hourly, matching the API limit. Official minute-interval documentation does not establish account availability. Unsaved form canceled; evidence/chatgpt-scheduler-2026-10-16.json |
-| MCP Events wake-up | Documented; not implemented here | Existing Robinhood plugin is absent from available automation event sources; a custom subscribed event server is required |
-| Hosted app account binding/read | Unverified | No independently authorized token; runtime rejects unselected/ineligible account |
-| Equity portfolio/positions/orders/quotes | Connector reads and local schema handling verified | No claim of independently hosted live data; source/receipt timestamps distinct |
-| Options instruments/quotes/Greeks/IV/liquidity | Connector sample reads verified | Contract multiplier and expiration returned; unavailable attributes remain null |
-| Single-leg and multi-leg options | Advertised, not execution-verified | Current connector metadata; approval level is not a successful preview/trade |
-| Stock-option combo, arbitrary custom structure execution | Unsupported | Marked unsupported; no broker write path exists |
-| Hosted broker preview/place/cancel/replace/exercise/transfer | Disabled / inaccessible in hosted runtime | Allowlist rejects discovered write/preview tools; no generic proxy. Native ChatGPT connector exposes broader tools; its skill is not an enforcement boundary |
-| Options deliverable/exercise style/settlement details | Unknown where unavailable | No automatic 100-share deliverable or uniform-hours assumption |
-| Broker alert events | Restricted / incomplete | User-wide alert schema rejected without explicit account binding |
-| Crypto/grouped/other asset coverage | Partial / unknown | Read selected linked account if schema supports; total open-order coverage never falsely complete |
-| Streaming/tick latency | Unsupported in this version | MCP request polling only; no guaranteed latency |
-| Broker request quota | Unverified | No published quota located; conservative shared 6 requests/minute application budget |
-| Exchange calendars | Local verified | Holiday, early close and DST tests; unknown options hours retain active polling |
-| FastAPI/dashboard/MCP protection | Local and deployed boundary verified | Deployed anonymous 401, read→control 403, authenticated status and MCP initialization/tool list; owner browser login verified in production callback/API logs |
-| Persistent pause/checkpoints/event dedupe | Real PostgreSQL fixture verified | Concurrent leadership, crash recovery, pause/checkpoint persistence and restore pass in CI |
-| OpenAI summaries and hard app reservation limits | Local fixture verified | Actual API key/model absent; default spend/calls zero; monitoring works without analysis |
-| External stopped-worker detection | Implemented sender, delivery unverified | Live external check/account/channel not configured |
-| Backups and isolated restoration | Real PostgreSQL fixture restore verified; production blocked | Native Railway backup scheduling requires Pro on the current Hobby workspace; no subscription changed |
-| Railway deployment | Deployed | Private PostgreSQL and worker; HTTPS web; immutable source; dedicated credentials; paused and unbound |
-| ChatGPT Secure MCP Tunnel | Documented approach verified; connection unverified | Runtime key, tunnel/workspace association and supported binary enrollment pending |
-| Full trading-session observation | Pending, not started | Auto-scheduled by first successful live cycle; no short test substituted |
-| Canvas design surface | Unavailable in this session | No callable new-Canvas surface; responsive source UI implemented, deployed public shell inspected; authenticated/mobile visual review pending |
-| Prior Webull materials | No reusable material readily located | No old methodology copied; search did not delay implementation |
+| Official Trading MCP endpoint/auth metadata | Public metadata inspected | Discovery and schema validation implemented |
+| Dynamic client registration | Implemented and protocol-tested | Echoed redirects do not prove consent acceptance |
+| Hosted HTTPS consent | Deployment-specific / unverified generically | Use official supported authentication; retain actual failures privately |
+| Native loopback enrollment | Implemented and tested | Real loopback, PKCE, owner-approved encrypted deposit; never import another app's session |
+| Token refresh and recovery | Implemented and tested | Original client binding persists; actual lifetime/rotation/revocation require private live evidence |
+| Read-only OAuth scope | Not advertised in inspected metadata | Runtime strict read allowlist is the enforcement boundary |
+| Explicit account binding | Implemented and tested | Caller-relative eligibility rechecked; nicknames do not authorize access; no silent aggregation |
+| Equities portfolio/positions/orders | Implemented and schema-tested | Missing values remain unknown; deployment-specific coverage must be verified |
+| Equity/options quote polling | Implemented and tested | Separate durable cache, batching, source/receipt timestamps and freshness states |
+| Options contracts, Greeks and liquidity | Implemented and schema-tested | Preserve unknown attributes; never assume a 100-share deliverable or common hours |
+| Single/multi-leg options execution | Advertised in inspected connector metadata; unverified | No order previews or trades are part of runtime verification; approval level is insufficient proof |
+| Custom or stock-option combo execution | Unsupported in this implementation | Structures remain explicitly unsupported |
+| Broker mutation/preview tools | Inaccessible in hosted runtime | No generic broker proxy; strict method/tool/account allowlists |
+| Broker alerts | Restricted | Reject user-wide alert tools without explicit account-scoped schema |
+| Other/grouped asset/order coverage | Partial / unknown | Never infer zero exposure or complete orders from missing endpoints |
+| Streaming/tick latency | Not enabled or verified for Robinhood | HTTP/SSE transport is not a verified quote subscription; no latency guarantee |
+| Broker quota | Unverified | Shared six-request/minute application cap is conservative policy, not broker permission |
+| Exchange calendars | Tested | Holidays, early closes and DST; unknown contract hours remain explicit |
+| Single active scheduler | Real PostgreSQL tests passed | Persistent advisory leadership, crash recovery and post-pacing checks |
+| Pause/checkpoints/quote cache | Persistence tests passed | Generation checks reject obsolete in-flight work; actual restart evidence stays private |
+| API/dashboard/MCP owner authorization | Tests passed | Read/control separation, CSRF/Origin checks and fail-closed behavior |
+| Model adapter and limits | Fixture-tested | Replaceable bounded adapter; zero default spend/calls; collection independent of AI |
+| Paper proposals | Implemented | Separate, explicitly hypothetical and unfilled; no midpoint-touch fill claim |
+| External outage detection | Sender implemented; deployment enrollment required | Success-only heartbeat; actual DOWN/UP and delivery receipt must be verified externally |
+| Backups/restoration | Real isolated PostgreSQL fixture restore passed | Production scheduling and isolated production restore are separate gates |
+| Railway portability | Containers/migrations/configuration implemented | Private worker/database; intentional pinned releases; actual service state is private |
+| ChatGPT app connection | Authenticated MCP endpoints implemented | Secure tunnel or supported authenticated connection requires workspace-specific enrollment |
+| Native-connector skill | Packaged separately | Does not bridge hosted credentials or hide another connector's tools |
+| Full-session observation | Implemented | Durable next reference session; report pending until complete, then inspect evidence |
+| Canvas design tooling | Unavailable in implementation session | Repository holds UI source; no simulated screenshot is live evidence |
 
-## Primary sources inspected
+## Primary sources
 
-- [Robinhood external-agent onboarding](https://robinhood.com/us/en/support/articles/onboarding-an-external-agent/)
-- [Robinhood trading with an agent](https://robinhood.com/us/en/support/articles/trading-with-your-agent/)
+- [Robinhood onboarding](https://robinhood.com/us/en/support/articles/agentic-trading-overview/)
+- [Robinhood agent tools](https://robinhood.com/us/en/support/articles/trading-with-your-agent/)
 - [Protected-resource metadata](https://agent.robinhood.com/.well-known/oauth-protected-resource/mcp/trading)
 - [Authorization-server metadata](https://agent.robinhood.com/.well-known/oauth-authorization-server/mcp/trading)
-- [MCP authorization specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)
-- [GitHub OAuth authorization](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps)
-- [Railway IaC](https://docs.railway.com/infrastructure-as-code), [volume backups](https://docs.railway.com/volumes/backups), [pricing](https://docs.railway.com/pricing/plans)
+- [MCP authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) and [transports](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
+- [GitHub OAuth](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps)
+- [Railway backups](https://docs.railway.com/volumes/backups) and [pricing](https://docs.railway.com/pricing/plans)
 - [OpenAI Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
 
 ## Proprietary dependencies
 
-The app, its protocol adapters and containers are portable MIT source. Robinhood accounts, authentication, brokerage services, quotes and usage/license terms remain proprietary. API data access is not a redistribution license. Railway managed hosting and OpenAI API/tunnel access are proprietary services; core monitoring does not depend on OpenAI availability. GitHub hosts source/owner identity. Healthchecks' hosted service is optional and externally operated; its open-source project may be substituted by an independently hosted compatible dead-man endpoint. No Cloudflare or purchased market-data dependency is present.
+Application code is MIT and container-portable. Brokerage accounts, authentication, quotes and data-use rights remain proprietary; access is not a redistribution license. Railway, GitHub identity/hosting and optional OpenAI services are external proprietary dependencies. Core monitoring does not require model access. The optional external heartbeat provider remains separate from application hosting. No Cloudflare or purchased market-data dependency is required. See MARKET-DATA-2026-10-16.md for free/open-source and commercial feed distinctions.

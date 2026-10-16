@@ -1,6 +1,6 @@
 # Native connection helper — 2026-10-16
 
-The direct Railway HTTPS consent flow is still blocked before its callback. A genuine native helper is now implemented as an alternative enrollment path. **Live consent, token issuance and hosted refresh for this path are not yet verified.** Its existence is not proof that Robinhood approves every hosted integration.
+The native helper is an alternative enrollment path using a real loopback listener and fresh, owner-approved credentials. It does not reuse another application's session. Deployment-specific consent, account binding and renewal results must be retained privately; support for this mechanism does not prove that every hosted callback or deployment pattern is broker-approved.
 
 ## Why this path
 
@@ -44,4 +44,4 @@ On October 16, the helper's actual unauthenticated discovery and native dynamic-
 
 Release `5e6712f74fd481baff4f9f531346308146be49ad` passed [CI with 138 tests and no skips](https://github.com/michaelbellino/robinhood-observatory/actions/runs/38949961420). Its web deployment reached SUCCESS, and the deployed unauthenticated enrollment/data/MCP boundaries returned 401. The native download was fetched from that immutable commit and matched local source byte-for-byte (SHA-256 `d460f3a967e46436821fb87ee948a5adf70175bf5e673997717eaaa18b72a759`).
 
-Still required: one real owner-approved native consent, account re-verification, hosted reads and refresh/restart evidence. Production backups, external heartbeat delivery and full-session observation remain separate acceptance gates. The helper adds no paid service or recurring local process.
+After a successful credential deposit, use Verify account and explicitly select the eligible account; do not restart Connect or rerun the helper while credentials are saved. Record consent, refresh/restart behavior and acceptance results privately. Production backup, external heartbeat delivery and full-session observation are separate deployment gates. The helper adds no paid service or recurring local process.

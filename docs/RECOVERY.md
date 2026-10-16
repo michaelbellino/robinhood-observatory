@@ -17,7 +17,7 @@ All timestamps are stored UTC. Dashboard times use America/New_York. The worker 
 
 ## External missed-work detection
 
-Prepared channel: Healthchecks.io hosted free plan, one continuous check, **period 35 minutes + grace 5 minutes**, an owner-verified email/push integration with a generic title. This is an external dependency, not application hosting. It can detect a Railway-wide outage without the application sending a failure alert. No account, check or delivery integration has been configured yet.
+Prepared channel: Healthchecks.io hosted free plan, one continuous check, **period 35 minutes + grace 5 minutes**, an owner-verified email/push integration with a generic title. This is an external dependency, not application hosting. It can detect a Railway-wide outage without the application sending a failure alert. Configure and verify the external account, check and delivery integration before claiming failure detection.
 
 Set the check's ping URL as worker-only `HEARTBEAT_URL`. It is a secret. The code POSTs an empty body only after a complete validated reconciliation and durable checkpoint commit; a mere process loop never pings. Off-hours reconciliation is nominally 30 minutes plus cycle duration. Detection is approximately 40 minutes after the last successful ping, not instant. The channel contains no balances, symbols or order details.
 
@@ -43,13 +43,13 @@ Create an empty database named `observatory_restore_<unique_suffix>` on an isola
 uv run python -m scripts.restore_verify backups/observatory-YYYY-MM-DD.enc
 ```
 
-It compares every restored table's count/hash, then forces paused/unverified state. Record the result and restore duration privately, not financial rows. A successful dump command alone is not a restore test. Restored credentials remain encrypted; recovery also requires the vault key. The current environment cannot run PostgreSQL, so **restore verification remains pending**. CI includes a real round-trip test against an isolated disposable database.
+It compares every restored table's count/hash, then forces paused/unverified state. Record the result and restore duration privately, not financial rows. A successful dump command alone is not a restore test. Restored credentials remain encrypted; recovery also requires the vault key. CI has passed a real encrypted round-trip restore into an isolated disposable PostgreSQL database. Production backup scheduling and restoration require their own evidence; fixture verification is not production recovery evidence.
 
 ## Rotation
 
 - **Session secret:** replace web secret to invalidate sessions; owner signs in again. Preserve explicit owner ID.
 - **MCP credentials:** generate independent high-entropy read/control tokens; store only SHA-256 hashes on web, secret values in the corresponding authenticated ChatGPT connections. Replace read and control independently; verify old token→401 and read token cannot control. Audit deployment/change outside the app as well.
-- **Broker:** pause, remove local credentials, revoke the dedicated authorization at Robinhood, independently reconnect. Never rotate by extracting a token from another connector. Refresh automatically persists returned rotation; live behavior is not yet verified.
+- **Broker:** pause, remove local credentials, revoke the dedicated authorization at Robinhood, independently reconnect. Never rotate by extracting a token from another connector. Refresh automatically persists returned rotation; verify actual renewal behavior privately in the target deployment.
 - **Vault encryption:** pause monitoring, create backup and key recovery copy. Set `ENCRYPTION_KEYS` to `new,old`, then `uv run python -m scripts.rotate_vault`; this rotates encrypted secrets, OAuth flows and account binding. Verify decrypt/read/restart before removing old key. Retain old keys securely for old encrypted backups. Never print them.
 - **Backup key:** new exports use a new independent key; retain old keys alongside an access-controlled key inventory for retained exports. Never lose the only decrypt key.
 - **OpenAI:** worker-only key rotation; keep AI disabled until model pricing and caps are configured. Monitoring remains independent.

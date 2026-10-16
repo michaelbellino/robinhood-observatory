@@ -1,0 +1,24 @@
+{
+  "date": "2026-10-16",
+  "scope": "public source and synthetic/isolated test evidence only",
+  "collector_commit": "4a6a898ca5f56384a5c36ac7506f71d1e34abe01",
+  "presentation_commit": "c902a4c31d40a6b4798428a6581eb1dec410a9ba",
+  "local": {"passed": 149, "postgres_skipped": 7},
+  "ci": {
+    "passed": 156,
+    "skipped": 0,
+    "run": "https://github.com/michaelbellino/robinhood-observatory/actions/runs/38974982322"
+  },
+  "coverage": [
+    "independent quote persistence",
+    "missing and stale exchange times",
+    "pause during in-flight reads",
+    "durable throttling",
+    "quote endpoint authorization",
+    "equity/options batch rotation",
+    "MCP session reuse and bounded recovery",
+    "leadership checked after pacing",
+    "isolated PostgreSQL migration and restore"
+  ],
+  "live_account_and_deployment_evidence": "retained privately; not included in public source"
+}

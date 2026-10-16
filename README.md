@@ -2,7 +2,7 @@
 
 Portable, single-owner account monitoring and bounded research. **Observe only.** No brokerage write, preview, cancel, exercise, transfer or permission-changing tools are exposed or implemented. Paper proposals are separate, hypothetical, unfilled records.
 
-**2026-10-16 status:** implemented and locally tested; deployment is underway. Current progress is recorded in [deployment status](docs/DEPLOYMENT-STATUS.md). Existing ChatGPT connector reads were verified, but they do not authenticate this application. Independent broker OAuth, production PostgreSQL, external heartbeat delivery, backup restoration, ChatGPT tunnel connection and full-session observation remain acceptance gates. See [capabilities](docs/CAPABILITIES-2026-10-16.md) and [handoff](docs/HANDOFF.md). Do not interpret fixture tests as live account evidence.
+**2026-10-16 implementation status:** independent account reconciliation and quote polling, reusable MCP sessions, durable checkpoints, authenticated dashboard/MCP, and observe-only analysis infrastructure are implemented. The latest release passes 156 automated tests including real PostgreSQL recovery/restore tests. Deployment-specific account metadata, operational measurements and acceptance evidence are retained privately by the owner. See [market-data research](docs/MARKET-DATA-2026-10-16.md), [capabilities](docs/CAPABILITIES-2026-10-16.md) and [handoff](docs/HANDOFF.md). Test results do not establish a deployment's full-session reliability.
 
 ## Components
 

@@ -1,43 +1,28 @@
-# Acceptance evidence — 2026-10-16
+# Acceptance verification — October 16, 2026
 
-## Result
+Implementation tests pass; they do not establish any particular deployment's complete production acceptance. Account metadata, live measurements and operator evidence are retained privately.
 
-**Local implementation verification passes. Production acceptance is incomplete.** The private production database, web and worker are deployed. No independently authenticated hosted broker session, external failure delivery, restored production backup or full trading-day run exists yet. The existing ChatGPT connector's successful reads are separate evidence and are never substituted for application credentials.
+| Requirement | Reproducible implementation evidence | Deployment evidence required privately |
+|---|---|---|
+| Independent auth and reads | Metadata validation, PKCE/native enrollment, encrypted deposit, scoped account checks | Actual consent, eligibility, lifetime/refresh/revocation |
+| Equity/options correctness | Schema, multiplier, timestamp, missing-data and structure tests | Account-specific held-instrument reconciliation |
+| Restart recovery | Real PostgreSQL pause/checkpoint, interrupted work and recovery tests | Restart with live credentials/checkpoints |
+| Single scheduler and dedupe | PG leadership/crash tests and event idempotence | Deploy overlap and actual receiver behavior |
+| Failure safety | 401/403/429, Retry-After, malformed/stale data and DB failure tests | Selected live operational drills |
+| Endpoint authorization | Owner, scope, CSRF/Origin and MCP boundary tests | Deployed API/MCP rejection and intended client connection |
+| Monitoring without AI | Disabled/failing/capped-model tests | Prolonged operation with analysis unavailable |
+| External outage detection | Success-only heartbeat and failed delivery tests | Actual external stopped/stalled DOWN/UP receipt |
+| Backup restore | Encrypted isolated PostgreSQL restore and manifest verification in CI | Scheduled production backup and isolated production restore |
+| No mutations/secrets | Strict read allowlist and source/error-log tests | Private deployment inspection |
 
-| # | Required acceptance | Verified evidence | Outstanding gate |
-|---:|---|---|---|
-| 1 | Hosted auth + authorized live reads | Official metadata; hosted Railway callback DCR accepted; existing connector account eligibility/read recheck | Supported hosted consent, account binding, lifetime/refresh/restart/revocation |
-| 2 | Equities/options, timestamps, unknowns | Connector quote/spec sample reads; synthetic collection/contract tests; adjusted multiplier test | App's live held-position mapping/reconciliation |
-| 3 | Restart recovery/pause/checkpoints | Real PostgreSQL pause/checkpoint persistence and lock crash/release tests (CI); interrupted work handling | Live broker checkpoint recovery after reconnect |
-| 4 | One scheduler/no duplicate alerts | Event idempotence/delivery ambiguity and real PG concurrent/crash leadership tests | Real receiver dedupe; deployed concurrent-leader drill |
-| 5 | Throttle/stale/auth/DB failures | Injected 401/403/429, full Retry-After, malformed/absent data, stale state retention, DB-failure no heartbeat | Live service fault drills |
-| 6 | Reject unauthorized dashboard/MCP | Deployed 401 anonymous API/MCP and 403 read→control; local wrong owner, CSRF/Origin, DNS-rebinding and sanitized error tests | Tunnel/client connection and authenticated owner browser login |
-| 7 | Monitor without model | Worker succeeds with AI disabled/failing/capped; no repeated unreserved calls | Live prolonged observation |
-| 8 | External stopped/stalled detection | Success-only ping and failed-delivery tests | External account/check/channel setup and stopped-worker DOWN/UP receipt |
-| 9 | Backup restoration | Real PostgreSQL encrypted backup and isolated hash-verified restore passed in CI; target guard tests | Actual deployment isolated restore and backup scheduling |
-| 10 | No mutations/no source/log secrets | Strict allowlist tests; mutation/preview routes absent; source scan; synthetic error-log redaction | Repeat scan/review before publication and inspect redacted production logs |
+## Current tests
 
-## Retained files
+Commit `c902a4c31d40a6b4798428a6581eb1dec410a9ba`: [156 passed, no skips in CI](https://github.com/michaelbellino/robinhood-observatory/actions/runs/38974982322). Local: 149 passed, seven explicit PostgreSQL skips. The quote/session release also passed [154 tests](https://github.com/michaelbellino/robinhood-observatory/actions/runs/38973974274). Earlier evidence files are historical results, not the latest total.
 
-- `evidence/local-tests.xml`: **89 passed, 5 skipped**, local runtime. Skips are the real PostgreSQL leadership/restart/migration/backup-restore gates, each explicitly marked. No hidden pass substitution.
-- `evidence/dependency-audit.json`: locked runtime dependency scan, no known advisories reported at inspection time. This is not a security guarantee.
-- `evidence/broker-public-metadata-2026-10-16.json`: unauthenticated official server metadata, no tokens.
-- `docs/connector-metadata-2026-10-16.json`: tool declarations inspected from the existing integration; describes advertised support, not successful execution.
-- `evidence/local-measurements.json`: empty-app HTTP liveness timing and explicit limits of resource/polling measurement.
-- CI workflow: disposable PostgreSQL 17, real lock/restart/migration/restore tests, typecheck, lint, scan and dependency audit. Passed remotely: **94 passed, 0 skipped**; see `evidence/ci-release-2026-10-16.json` and its linked run.
+Quote tests cover independent commits, missing/malformed value preservation, stale source times despite recent receipt, pause during reads, durable throttling, protected quote endpoints, batch rotation, session reuse/404 recovery and leadership checks after pacing. CI also runs migrations, source scanning and the locked dependency audit.
 
-Alembic migration upgrade and schema-drift check passed locally using SQLite only. The Railway IaC declaration typechecked with the locked SDK. JavaScript syntax check passed. Docker image digests were checked against the official registry, but this environment has no Docker daemon; Railway Docker builds and web/worker startup passed; local Compose execution remains unverified.
+## Measurement rules
 
-## Polling and measurements
+Measure broker HTTP duration, pacing, whole-cycle duration, quote completion gaps, source age and local receipt age separately. The shared application cap defaults to six MCP requests/minute; it is not a verified broker quota. The quote target is per batch, not a streaming or latency guarantee. More batches, pagination, outages and backoff extend cadence. See MARKET-DATA-2026-10-16.md.
 
-Application pacing is at most six broker MCP HTTP requests/minute across web and worker, persisted in PostgreSQL; the default active delay is 180 seconds **after** a successful cycle, off-hours 1,800 seconds after success. A cycle includes initialization/tool discovery, account recheck, portfolio, all position/order pages and bounded quote batches. Therefore actual interval is cycle duration + configured delay, not exactly three minutes. Large holdings/pagination reduce cadence. No tick streaming or response-time guarantee is claimed.
-
-Tests measure reserved delays across independent limiter instances/restart and full Retry-After preservation. These are deterministic/simulated tests, not a live permitted-rate experiment. No published broker quota was found; don't increase pacing without broker guidance. Real request counts/throttles/cycle time/RSS will be persisted in Work records.
-
-The empty local app answered 20 liveness requests with mean 0.976 ms and maximum 3.396 ms in this runtime. These are local smoke measurements, not internet latency, database-load or market-session reliability evidence. Production CPU/RAM/egress and actual broker polling remain unmeasured. Runtime process isolation prevented a trustworthy direct RSS sample; it is intentionally not reported as application memory.
-
-## Observation and UI
-
-Full-session observation is **pending, not started**. The first completed independently authenticated live cycle schedules the next complete XNYS reference session. Stored observation evidence records successful/failed cycles and maximum gap against a 600-second criterion. Instrument-specific options hours require separate coverage once verified. A pending or short smoke result must never be described as a completed session.
-
-The responsive dashboard source and HTTP shell work locally; the cloud browser refused localhost with `ERR_BLOCKED_BY_CLIENT`. The deployed desktop shell renders correctly with explicit unknowns; mobile visual review is pending. No callable new-Canvas creation surface was available in this session; the repository remains the design/source record. No screenshot or mock values are represented as live data.
+Retain full-session evidence only after the complete reference exchange session. The observer records cycle successes/failures and maximum gaps; options-specific hours and quote freshness are additional acceptance measures. Keep every fixture explicitly synthetic and separate from live data. Store operational evidence privately instead of committing account/deployment metadata to public source.
