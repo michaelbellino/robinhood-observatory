@@ -1,0 +1,44 @@
+{
+  "date": "2026-10-16",
+  "release_commit": "936a4303904dbc9df4cc43a5788cb090f8f5a2c8",
+  "source_tree": "ef994ea46a674f5c1a418b9a68090e45bc3e3a79",
+  "ci": {
+    "run_id": 38941182829,
+    "url": "https://github.com/michaelbellino/robinhood-observatory/actions/runs/38941182829",
+    "result": "success",
+    "tests_passed": 115,
+    "tests_skipped": 0,
+    "test_seconds": 6.72,
+    "secret_scan": "pass",
+    "dependency_audit": "no known vulnerabilities found",
+    "artifact": {
+      "id": 12063870435,
+      "name": "verification-evidence",
+      "digest": "sha256:c419721ddb74046a674c7bb2747c043a3566aee29e73fac635db0f5bf178a96f"
+    }
+  },
+  "deployments": {
+    "web": {
+      "id": "27420e55-2f04-4c86-82c4-0a9db8471c17",
+      "status": "SUCCESS"
+    },
+    "worker": {
+      "id": "c4a24d1c-38d6-40cf-a421-728185da9136",
+      "status": "SUCCESS"
+    }
+  },
+  "deployment_policy": "exact commit pin; ordinary push does not deploy",
+  "hosted_checks": {
+    "/health/live": 200,
+    "/api/robinhood/diagnostics": 401,
+    "/api/status": 401,
+    "/mcp/read/": 401,
+    "/mcp/control/": 401
+  },
+  "check_scope": "anonymous hosted checks; owner control/read distinction and protocol paths verified in synthetic CI",
+  "broker_consent": "blocked before application callback; response detail needed",
+  "live_account_reads_from_hosted_app": "unverified",
+  "full_session_observation": "pending",
+  "real_broker_mutations": 0,
+  "rollback_commit": "0b82049a221707987405af48c4b22b448c8994c8"
+}

@@ -41,3 +41,7 @@ Retrieved directly from Robinhood on 2026-10-16 without authentication, cookies 
 | [Trading consent](https://cdn.robinhood.com/assets/generated_assets/webapp/AgenticTradingOnboarding-4996f4d781fcb2b6.chunk.js) | `4ea1432564e2a5bc180b27d1b9418008e5d06d432ed6a8fe4bed2dfdaceb4ac4` |
 
 Metadata: [authorization server](https://agent.robinhood.com/.well-known/oauth-authorization-server/mcp/trading), [protected resource](https://agent.robinhood.com/.well-known/oauth-protected-resource/mcp/trading).
+
+## Released and verified
+
+Commit `936a4303904dbc9df4cc43a5788cb090f8f5a2c8` passed [CI run 38941182829](https://github.com/michaelbellino/robinhood-observatory/actions/runs/38941182829): **115 passed**, including PostgreSQL tests, plus source scan, infrastructure checks and dependency audit. Web deployment `27420e55-2f04-4c86-82c4-0a9db8471c17` and worker deployment `c4a24d1c-38d6-40cf-a421-728185da9136` succeeded with that exact commit. The deployed liveness endpoint returns 200 and anonymous status/diagnostics/read-MCP/control-MCP requests return 401. This does not prove that Robinhood consent succeeds; its error response is still needed. Rollback uses the previous immutable runtime commit `0b82049a221707987405af48c4b22b448c8994c8` for both services; database changes are not involved.

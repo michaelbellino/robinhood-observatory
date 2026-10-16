@@ -4,7 +4,7 @@ The application and deployment exist. Read DEPLOYMENT-STATUS.md first for the la
 
 ## Implemented and verified
 
-FastAPI/dashboard, owner authorization, read/control MCP separation, official Robinhood OAuth with durable encrypted tokens, strict brokerage read allowlist, bounded polling, calendars/options models, observe-only versioned strategy interface, paper-only proposals, bounded OpenAI adapter, database leadership/checkpoints/audit/dedupe, failure handling and portable release/recovery tooling. CI has 94 passing tests including a real isolated PostgreSQL restore. Web, worker and private database are deployed from an immutable commit. Hosted unauthorized rejection, read-only authorization, MCP tool discovery, pause idempotence and persistence after worker restart are verified. Evidence files contain no private financial records or credentials.
+FastAPI/dashboard, owner authorization, read/control MCP separation, official Robinhood OAuth with durable encrypted tokens, strict brokerage read allowlist, bounded polling, calendars/options models, observe-only versioned strategy interface, paper-only proposals, bounded OpenAI adapter, database leadership/checkpoints/audit/dedupe, failure handling and portable release/recovery tooling. CI has 115 passing tests including a real isolated PostgreSQL restore. Web, worker and private database are deployed from an immutable commit. Hosted unauthorized rejection, read-only authorization, MCP tool discovery, pause idempotence and persistence after worker restart are verified. Evidence files contain no private financial records or credentials.
 
 ## Resume from here
 
@@ -21,3 +21,5 @@ The repository is the source of truth. Production source is pinned to a specific
 ## Active OAuth investigation
 
 Owner GitHub login is verified. Robinhood Allow fails before any app callback; shared default client/redirect acceptance is a hypothesis awaiting the failed consent response detail. Read OAUTH-INVESTIGATION-2026-10-16.md before changing authentication. The new owner-only diagnostics and protocol regression tests address callback/error-reporting gaps without weakening OAuth. No live broker connection or full-session observation has been proven.
+
+The OAuth diagnostic release `936a4303904dbc9df4cc43a5788cb090f8f5a2c8` is pinned on both services. Release evidence: `evidence/oauth-release-2026-10-16.json`. CI run 38941182829 passed all 115 tests, secret scan and dependency audit. The remaining owner step is to capture only the failed Robinhood consent request HTTP status and non-secret error detail in desktop browser Network tools; no HAR or session material.
