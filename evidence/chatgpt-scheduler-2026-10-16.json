@@ -1,0 +1,27 @@
+{
+  "date_utc": "2026-10-16",
+  "environment": "owner-signed-in ChatGPT cloud browser",
+  "inspection": "read-only UI inspection plus canceled unsaved task form",
+  "sign_in": "verified",
+  "scheduler_path": "/scheduled",
+  "requested_interval_minutes": 2,
+  "interval_units_observed": ["hours"],
+  "custom_repeat_frequencies_observed": ["Hourly", "Daily", "Weekly", "Monthly", "Yearly"],
+  "active_implementation_chat_menu": "No separate minute-based scheduling control exposed",
+  "webmcp_scheduler_tools": "none advertised on inspected documents",
+  "automations_api_limit": "hourly",
+  "documentation_discrepancy": "Official existing-chat automation documentation describes minute intervals; inspected account UI does not offer them",
+  "task_created": false,
+  "existing_tasks_modified": false,
+  "unsaved_form": "canceled",
+  "hourly_substitution": false,
+  "workarounds_attempted": false,
+  "credentials_or_private_task_contents_retained": false,
+  "full_trading_session": "pending; not started",
+  "limits": [
+    "No conclusion about availability on other accounts or future rollouts",
+    "No background execution or subsequent-run connector access was tested",
+    "Native plan usage and brokerage request quota remain unverified",
+    "This does not resolve independently hosted Robinhood OAuth"
+  ]
+}

@@ -9,7 +9,9 @@
 - Hosted checks: anonymous API/read-MCP/control-MCP return 401; authenticated stored status returns 200; read credentials receive 403 on controls; repeated pause request is idempotent. Paused state survives worker redeployment. MCP initialization/tool listing succeeds with only monitor_status and monitor_history on the read endpoint.
 - Dedicated GitHub OAuth app registered with exact callback, no wildcard/device flow; secret transferred directly into this service's Railway variables without appearing in prompts, screenshots, source or logs. Owner subject is explicitly bound. Deployed /auth/login returns 302 to GitHub HTTPS, read:user, PKCE S256. The owner subsequently completed GitHub sign-in; production callback and authenticated API logs verify that login works.
 - The hosted app received a Robinhood registration response echoing its callback, but consent fails after Allow. No broker callback reaches the app. This is not yet a working independent connection. See OAUTH-INVESTIGATION-2026-10-16.md for evidence and the remaining diagnostic. Live reads, binding and token behavior remain **unverified**. Monitoring is paused and unbound.
-- Model spending and call limits remain zero. No model credentials, brokerage writes, previews, transfers, or real orders were used.
+- Hosted model spending and call limits remain zero. No model credentials or hosted brokerage writes were used; no order previews, transfers, or real orders were attempted in either environment.
+- Native ChatGPT Robinhood reads succeeded separately from hosted OAuth. One authorized watchlist add/read/remove/read test restored the original state; no trading mutation occurred. The private Stock Observatory workflow is installed, but its instructions do not hide the native connector's mutation tools.
+- ChatGPT browser sign-in is complete. The account's inspected scheduling UI offers hourly as its fastest frequency; the requested two-minute task was not created. The form was canceled and no existing task changed. The Railway worker remains paused pending independent brokerage authorization.
 
 ## Remaining owner steps and access gates
 
