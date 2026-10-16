@@ -56,6 +56,10 @@ class MalformedData(BrokerError):
     code = "malformed_data"
 
 
+class SessionExpired(BrokerError):
+    code = "session_expired"
+
+
 class Throttled(BrokerError):
     code = "throttled"
 
@@ -91,6 +95,8 @@ class ReadOnlyBroker:
         self.next_request = 0.0
         self.sleep = sleep
         self.metrics = {"requests": 0, "throttles": 0, "elapsed_ms": 0}
+        self.preflight = None
+        self.rate_headers = {}
 
     async def close(self):
         if self.owns_client:
@@ -108,6 +114,9 @@ class ReadOnlyBroker:
         if self.limiter is not None:
             await self.limiter.acquire()
         await self.sleep(max(0, self.next_request - time.monotonic()))
+        # Recheck leadership, pause and credentials after waiting, immediately before I/O.
+        if self.preflight is not None:
+            await self.preflight()
         self.next_request = time.monotonic() + 60 / self.rpm
         self.sequence += 1
         body = {"jsonrpc": "2.0", "method": method, "params": params or {}}
@@ -124,6 +133,11 @@ class ReadOnlyBroker:
         self.metrics["requests"] += 1
         try:
             async with self.client.stream("POST", ENDPOINT, json=body, headers=headers) as response:
+                for key in ("ratelimit-limit", "ratelimit-remaining", "ratelimit-reset",
+                            "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset"):
+                    value = response.headers.get(key, "")
+                    if value.isascii() and value.isdigit() and len(value) <= 16:
+                        self.rate_headers[key] = int(value)
                 if response.status_code in (401, 403):
                     raise AuthorizationExpired()
                 if response.status_code == 429:
@@ -132,6 +146,10 @@ class ReadOnlyBroker:
                     if self.limiter is not None:
                         self.limiter.defer(delay)
                     raise Throttled(delay)
+                if response.status_code == 404 and self.session_id:
+                    self.session_id = None
+                    self.schemas = {}
+                    raise SessionExpired()
                 if response.status_code >= 400:
                     raise BrokerError()  # Do not log URLs, response bodies, tokens, or account IDs.
                 self.session_id = response.headers.get("Mcp-Session-Id", self.session_id)

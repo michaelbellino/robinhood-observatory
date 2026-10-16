@@ -16,3 +16,16 @@ $("logout").onclick=async()=>{try{await api("/api/logout",{});location.reload();
 $("config").onsubmit=async event=>{event.preventDefault();try{await api("/api/config",{watchlist:$("symbols").value.split(",").map(x=>x.trim().toUpperCase()).filter(Boolean),calendars:current?.config?.calendars||{}});await refresh();}catch(e){error(e);}};
 for(const button of document.querySelectorAll("[data-kind]")){button.onclick=()=>{activeKind=button.dataset.kind;document.querySelectorAll("[data-kind]").forEach(x=>x.classList.toggle("selected",x===button));history();};}
 refresh();setInterval(refresh,30000);
+
+async function refreshMarket(){
+ if(!current)return;
+ try{
+  const m=await api("/api/market");
+  text("market-status",m.status.replaceAll("_"," "));
+  text("quote-health",`${m.status.replaceAll("_"," ")} · ${m.quotes.length} cached quotes`);
+  text("market-note",`Robinhood MCP polling · Last batch: ${timestamp(m.last_success)} · ${m.batch_target_seconds??30}s target per batch, subject to pacing. Missing: ${m.missing_instruments?.length??0}. Source times can remain old after close.`);
+  const rows=m.quotes.map(q=>({...q,bid_at_display:timestamp(q.bid_at),ask_at_display:timestamp(q.ask_at),received:timestamp(q.received_at)}));
+  table($("market-quotes"),rows,[["Instrument","instrument_id"],["Bid","bid"],["Ask","ask"],["Bid time","bid_at_display"],["Ask time","ask_at_display"],["Received","received"]]);
+ }catch(e){text("market-status","Quote cache unavailable");}
+}
+setInterval(refreshMarket,5000);

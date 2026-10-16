@@ -122,3 +122,13 @@ def test_encrypted_backup_isolated_restore(pg, tmp_path, monkeypatch):
     finally:
         with admin.connect() as c:
             c.execute(text(f'DROP DATABASE "{target_name}" WITH (FORCE)'))
+
+
+def test_market_checkpoint_survives_connection_restart(pg):
+    from observatory.db import MarketState, now
+    with pg.session() as s:
+        s.add(MarketState(id=1, last_success=now(), cursor=2, status="polling", payload={"quotes": [], "synthetic": True}))
+    other = Database(pg.engine.url.render_as_string(hide_password=False))
+    with other.session() as s:
+        row = s.get(MarketState, 1)
+        assert row.cursor == 2 and row.payload["synthetic"] and row.last_success

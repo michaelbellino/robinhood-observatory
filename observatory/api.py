@@ -25,6 +25,7 @@ from .oauth import RobinhoodOAuth, OAuthProblem
 from .enrollment import LocalEnrollment
 from .security import Vault, bearer_principal, principal, require_control
 from .service import status, history, change_pause, start_observation
+from .market import market_status
 from .settings import Settings
 
 STATIC = Path(__file__).parent / "static"
@@ -257,6 +258,10 @@ def create_app(settings=None, database=None):
     async def session_info(request: Request):
         return {"csrf": request.session.get("csrf"), "scope": principal.get()["scope"]}
 
+    @app.get("/api/market")
+    async def get_market():
+        return market_status(db)
+
     @app.get("/api/status")
     async def get_status():
         return status(db)
@@ -296,6 +301,10 @@ def create_app(settings=None, database=None):
         with db.session() as s:
             row = s.scalar(select(State).where(State.id == 1).with_for_update())
             row.config = {"watchlist": sorted(set(watchlist)), "calendars": calendars}
+            from .db import MarketState
+            market = s.get(MarketState, 1)
+            if market:
+                market.next_run = now()
             row.generation += 1
             s.add(
                 Audit(

@@ -4,6 +4,7 @@ from sqlalchemy import select
 from .db import State, Snapshot, Event, Analysis, PaperProposal, Audit, Observation, Work, Secret, aware, now
 from .domain import Quote
 from .calendar import next_full_session
+from .market import market_status
 
 
 def status(db):
@@ -44,6 +45,7 @@ def status(db):
             "next_run": next_run.isoformat() if next_run else None,
             "snapshot": payload,
             "quote_freshness": freshness,
+            "market": market_status(db),
             "cost_estimate": {
                 "railway_monthly_usd": [10, 25],
                 "type": "estimate_not_measured",

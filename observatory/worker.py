@@ -18,6 +18,8 @@ from .security import Vault
 from .service import start_observation, finalize_observations
 from .settings import Settings
 from .rate_limit import RequestLimiter
+from .market import refresh_quotes
+from .worker_session import WorkerBroker
 
 log = logging.getLogger("observatory.worker")
 
@@ -194,6 +196,7 @@ async def run_cycle(db, settings, vault, broker_factory=ReadOnlyBroker, connecti
                 return await original(*args, **kwargs)
 
             broker.rpc = guarded_rpc
+        metrics_before = dict(broker.metrics)
         await broker.initialize()
         payload = await collect(broker, config)
         snap = Snapshot(id=str(uuid.uuid4()), source="robinhood_mcp_live", payload=payload, observed_at=now())
@@ -218,7 +221,7 @@ async def run_cycle(db, settings, vault, broker_factory=ReadOnlyBroker, connecti
             work = s.get(Work, job_id)
             work.state, work.finished_at = "succeeded", now()
             work.metrics = {
-                **broker.metrics,
+                **{k: v - metrics_before.get(k, 0) for k, v in broker.metrics.items()},
                 "cycle_seconds": round(time.monotonic() - started, 3),
                 "max_rss_kb": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
             }
@@ -245,6 +248,10 @@ async def run_cycle(db, settings, vault, broker_factory=ReadOnlyBroker, connecti
         code = exc.code if isinstance(exc, BrokerError) else "monitoring_failed"
         with db.session() as s:
             row = s.scalar(select(State).where(State.id == 1).with_for_update())
+            if row.generation != generation or row.paused:
+                job = s.get(Work, job_id)
+                job.state, job.finished_at = "superseded", now()
+                return "superseded"
             row.failures += 1
             row.status = code
             delay = exc.retry_after if isinstance(exc, Throttled) else retry_delay(None, row.failures)
@@ -265,6 +272,62 @@ async def run_cycle(db, settings, vault, broker_factory=ReadOnlyBroker, connecti
             await broker.close()
 
 
+async def serve_leader(db, settings, vault, connection):
+    """Serialized account and quote work; no concurrent sessions on the lock connection."""
+    broker = None
+    pid = connection.scalar(text("SELECT pg_backend_pid()"))
+    connection.commit()
+    try:
+        while True:
+            with db.session() as s:
+                state = s.get(State, 1)
+                active = not state.paused and state.account_verified
+                account = vault.decrypt(state.account_cipher) if active else None
+                generation = state.generation
+            if not active:
+                if broker:
+                    await broker.shutdown()
+                    broker = None
+                await asyncio.sleep(5)
+                continue
+            try:
+                token = await RobinhoodOAuth(db, vault, settings).access_token()
+                if broker is None:
+                    broker = WorkerBroker(token, account, settings.broker_rpm)
+                    broker.limiter = RequestLimiter(db, settings.broker_rpm)
+
+                async def preflight():
+                    if (connection.invalidated or connection.closed
+                            or connection.scalar(text("SELECT pg_backend_pid()")) != pid):
+                        raise RuntimeError("Leadership lost")
+                    connection.commit()
+                    with db.session() as s:
+                        current = s.get(State, 1)
+                        if current.paused or not current.account_verified or current.generation != generation:
+                            raise RuntimeError("Monitoring configuration changed")
+                    broker.token = await RobinhoodOAuth(db, vault, settings).access_token()
+
+                async def quotes():
+                    await refresh_quotes(db, settings, broker)
+
+                broker.token, broker.preflight = token, preflight
+                broker.before_account_call = quotes
+                # Same physical connection is checked AFTER pacing by preflight. No stacked wrappers.
+                result = await run_cycle(db, settings, vault, lambda *args: broker)
+                if result == "idle":
+                    await broker.initialize()
+                    await quotes()
+            except AuthorizationExpired:
+                with db.session() as s:
+                    state = s.get(State, 1)
+                    state.paused, state.account_verified, state.status = True, False, "authorization_expired"
+                log.warning("worker_authorization_expired")
+            await asyncio.sleep(5)
+    finally:
+        if broker:
+            await broker.shutdown()
+
+
 async def main():
     settings = Settings().validate()
     db, vault = Database(settings.database_url), Vault(settings.encryption_keys)
@@ -275,7 +338,7 @@ async def main():
         try:
             with db.leader() as connection:
                 if connection is not None:
-                    await run_cycle(db.bound(connection), settings, vault, connection=connection)
+                    await serve_leader(db.bound(connection), settings, vault, connection)
         except Exception:
             # DB unavailable: no heartbeat, no exposure reset, no model request.
             log.warning("worker_cycle_unavailable")

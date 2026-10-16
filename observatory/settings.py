@@ -24,6 +24,7 @@ class Settings:
     )
     mcp_internal_host: str = field(default_factory=lambda: os.getenv("MCP_INTERNAL_HOST", ""))
     broker_rpm: int = field(default_factory=lambda: int(os.getenv("BROKER_RPM", "6")))
+    quote_poll_seconds: int = field(default_factory=lambda: int(os.getenv("QUOTE_POLL_SECONDS", "30")))
     active_poll_seconds: int = field(default_factory=lambda: int(os.getenv("ACTIVE_POLL_SECONDS", "180")))
     offhours_poll_seconds: int = field(
         default_factory=lambda: int(os.getenv("OFFHOURS_POLL_SECONDS", "1800"))
@@ -55,4 +56,6 @@ class Settings:
             raise ValueError("BROKER_RPM must be 1..60; raise only with documented broker permission")
         if self.active_poll_seconds < 60 or self.offhours_poll_seconds < self.active_poll_seconds:
             raise ValueError("Invalid polling intervals")
+        if self.quote_poll_seconds < 30:
+            raise ValueError("Quote target must be at least 30 seconds; shared broker pacing still applies")
         return self

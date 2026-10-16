@@ -97,7 +97,7 @@ async def collect(broker, config):
     if len(config.get("watchlist", [])) > 20 or len(symbols) > 200:
         raise MalformedData()
     result["quotes"] = []
-    for start in range(0, len(symbols), 20):
+    for start in range(0, 0 if getattr(broker, "independent_quotes", False) else len(symbols), 20):
         batch = symbols[start : start + 20]
         data = await broker.call("get_equity_quotes", {"symbols": batch})
         rows = data.get("results")
@@ -127,13 +127,15 @@ async def collect(broker, config):
             chain = chains.get(item.get("chain_id"), {})
             contract["settle_on_open"] = chain.get("settle_on_open")
             result["contracts"].append(contract)
-        data = await broker.call("get_option_quotes", {"instrument_ids": batch})
-        if not isinstance(data.get("results"), list):
-            raise MalformedData()
-        quotes = [quote_from_broker(row, now(), options=True) for row in data["results"]]
-        result["option_quotes"].extend(q.model_dump(mode="json") for q in quotes)
-        if {q.instrument_id for q in quotes} != set(batch):
-            result["warnings"].append("Some held option quotes are unknown")
+        if not getattr(broker, "independent_quotes", False):
+            data = await broker.call("get_option_quotes", {"instrument_ids": batch})
+            if not isinstance(data.get("results"), list):
+                raise MalformedData()
+            quotes = [quote_from_broker(row, now(), options=True) for row in data["results"]]
+            result["option_quotes"].extend(q.model_dump(mode="json") for q in quotes)
+            if {q.instrument_id for q in quotes} != set(batch):
+                result["warnings"].append("Some held option quotes are unknown")
+    result["quote_collection"] = "independent_cache" if getattr(broker, "independent_quotes", False) else "snapshot"
     result["alerts"] = None
     if "account_number" in broker.schemas.get("get_alert_log", {}).get("properties", {}):
         result["alerts"] = await broker.call("get_alert_log", {"account_number": account})

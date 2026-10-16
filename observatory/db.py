@@ -42,6 +42,18 @@ class RequestBudget(Base):
     next_allowed: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class MarketState(Base):
+    __tablename__ = "market_state"
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    last_success: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_attempt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_run: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(40), default="not_collected")
+    cursor: Mapped[int] = mapped_column(Integer, default=0)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    metrics: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
 class Secret(Base):
     __tablename__ = "encrypted_secrets"
     name: Mapped[str] = mapped_column(String(40), primary_key=True)
