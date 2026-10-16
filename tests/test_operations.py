@@ -41,3 +41,30 @@ def test_restore_refuses_production_and_unacknowledged_target(monkeypatch, targe
     monkeypatch.setenv("RESTORE_ISOLATED_ACK", ack)
     with pytest.raises(ValueError):
         restore("/no/file/read/expected")
+
+
+async def test_overloaded_requests_do_not_extend_shared_backlog(db):
+    from observatory.broker import Throttled
+    limiter = RequestLimiter(db, 6, AsyncMock())
+    limiter.defer(3600)
+    with db.session() as session:
+        before = session.get(RequestBudget, 1).next_allowed
+    for _ in range(10):
+        with pytest.raises(Throttled) as error:
+            await limiter.acquire()
+        assert error.value.retry_after > 3590
+    with db.session() as session:
+        assert session.get(RequestBudget, 1).next_allowed == before
+    assert not limiter.sleep.called
+
+
+def test_account_verification_pacing_returns_retry_after(client, control_headers, monkeypatch):
+    from observatory.broker import Throttled
+    from observatory.oauth import RobinhoodOAuth
+    async def paced(*args):
+        raise Throttled(31.2)
+    monkeypatch.setattr(RobinhoodOAuth, "access_token", paced)
+    response = client.get("/api/robinhood/accounts", headers=control_headers)
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "32"
+    assert "saved connection is unchanged" in response.json()["detail"]

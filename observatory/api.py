@@ -1,4 +1,5 @@
 import logging
+import math
 import re
 import secrets
 import uuid
@@ -17,7 +18,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
-from .broker import ReadOnlyBroker, BrokerError
+from .broker import ReadOnlyBroker, BrokerError, Throttled
 from .db import Database, State, Audit, PaperProposal, Secret, now
 from .domain import Paper
 from .oauth import RobinhoodOAuth, OAuthProblem
@@ -177,6 +178,11 @@ def create_app(settings=None, database=None):
 
     @app.exception_handler(BrokerError)
     async def broker_error(request, exc):
+        if isinstance(exc, Throttled):
+            return JSONResponse(
+                {"detail": "Brokerage requests are paced. Wait before verifying again; the saved connection is unchanged."},
+                status_code=429, headers={"Retry-After": str(math.ceil(exc.retry_after))},
+            )
         return JSONResponse({"detail": exc.code}, status_code=503)
 
     @app.exception_handler(OAuthProblem)
