@@ -27,7 +27,19 @@ The next discriminating evidence is the failed consent request's HTTP status and
 
 Local result: **110 passed, 5 PostgreSQL tests skipped** because local PostgreSQL is unavailable. The existing GitHub verification workflow runs those five tests against its isolated PostgreSQL service; inspect the workflow for this change's exact commit before deployment. The previous deployed implementation passed all 94 then-existing tests in CI. New cases cover the complete PKCE exchange and restart recovery, client binding through refresh, wrong owner/issuer, expired/reused state, consent denial, malformed callback/token, timeouts, failed exchange, redacted errors, owner-only diagnostics and paused/unbound state after authorization. Source scan and Ruff pass.
 
-These are synthetic protocol tests. Live hosted consent, credentials, refresh and account reads remain **unverified**. Monitoring remains paused; no broker mutations, previews or trades were invoked.
+These are synthetic protocol tests. Live hosted consent, credentials, refresh and account reads remain **unverified**. Hosted monitoring remains paused; no previews, trades or transfers were invoked. A subsequent native-connector watchlist test is separately documented and fully reversed.
+
+## Comparable public reports, retrieved 2026-10-16
+
+- [NexusTrade founder's first-hand July 2026 report](https://nexustrade.io/blog/robinhood-agentic-trading-mcp-review-20260708): local authorization worked, but a registered hosted HTTPS callback failed after Allow, with no code/callback. This closely matches our symptom. His broader product criticism and July capability claims are not evidence of current limitations; he operates a competing product.
+- [Cursor CLI report and staff reply, June 10](https://forum.cursor.com/t/cursor-cli-robinhood-mcp-oauth-fails/162865): staff attributed a similar failure to client-specific redirect acceptance. This does not prove every localhost client works or fails.
+- [Cursor/Grok Bot September 9 report and staff reply](https://forum.cursor.com/t/grok-bot-robinhood-agentic-trading-mcp-oauth-fails-after-allow-grokbot-callback-oauth-error/171111): the staff reply describes an HTTPS callback and a separate expired authorization attempt. Generic error text alone does not distinguish rejected redirects from stale flows.
+- [rhagent.bot's own documentation](https://doc.rhagent.bot/): describes Railway hosting and an encrypted token vault, but its agentic connection endpoint stores an existing token. This is a Railway-related implementation claim, not independently verified evidence of fresh supported hosted OAuth registration/refresh. Do not extract a token from another application's session to imitate it.
+- [Robinhood's current onboarding documentation](https://robinhood.com/us/en/support/articles/agentic-trading-overview/): names supported platforms and localhost, and directs other-platform integrations to support. No automatic approval for arbitrary Railway callbacks is established.
+
+Together these strengthen the client-registration/redirect hypothesis. They do not prove Railway is blocked, that all hosted callbacks fail, or that our client configuration is correct. Retain the actual failed-consent status/non-secret detail as the next discriminating evidence.
+
+Prepared support question (not sent): Does Robinhood Trading MCP support a private independently hosted web client with redirect `https://web-production-0eaab.up.railway.app/oauth/robinhood/callback`? Dynamic registration returns 200 and echoes this redirect, but consent fails before a callback. Is this redirect/client eligible for registration, or is platform approval required? What supported enrollment path, token lifetime and refresh policy apply? Do not include credentials, authorization URLs, account numbers or HAR files.
 
 ## Primary public source evidence
 

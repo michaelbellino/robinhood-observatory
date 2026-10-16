@@ -1,5 +1,15 @@
 # Durable implementation handoff — 2026-10-16
 
+## Latest steering: ChatGPT as the operating interface
+
+The owner explicitly requested native Robinhood MCP reads/writes and background ChatGPT operation. Live reads succeeded; the authorized non-trading write test added SPY to an empty watchlist, verified it, removed it, and verified restoration. No money moved. See `evidence/native-connector-2026-10-16.json` and `docs/CHATGPT.md`. Railway is already connected; do not ask the owner to authorize it again.
+
+The repository now includes a skill-only Stock Observatory plugin, created privately at version 0.1.0 and verified in the active skill catalog. Its skill readback matches source byte-for-byte. Plugin ingestion appends creator contact metadata; keep that out of public source/evidence. It is a reusable native observation workflow, not a hosted broker-token bridge or a tool-permission sandbox. Native broker mutation tools remain visible but prohibited in observation runs. The runtime's strict read allowlist is unchanged.
+
+Two-minute recurring operation is not enabled. The available Automations API permits hourly at most, whereas official existing-chat UI documentation describes minute intervals. Verify the actual signed-in UI and save/read back the schedule before claiming success. The shared Chrome ChatGPT tab is signed out. Use its secure authentication handoff; never copy native session cookies. Do not silently create hourly or stagger tasks. Broker quota and native task usage/limits remain unknown. Hosted OAuth is still independently blocked, and full-session evidence remains pending.
+
+Public research now includes a closely matching hosted OAuth failure from NexusTrade, client-specific Cursor redirect/expiry reports, and Robinhood's instruction to contact support for other platforms. See OAUTH-INVESTIGATION-2026-10-16.md. No confirmed Railway-specific outage or complete supported fresh-OAuth Railway example was located; do not blame hosting or claim the precise cause is proven.
+
 The application and deployment exist. Read DEPLOYMENT-STATUS.md first for the latest observed state; ACCEPTANCE.md and CAPABILITIES-2026-10-16.md distinguish synthetic, real PostgreSQL, hosted smoke, existing-connector and independent-broker evidence.
 
 ## Implemented and verified

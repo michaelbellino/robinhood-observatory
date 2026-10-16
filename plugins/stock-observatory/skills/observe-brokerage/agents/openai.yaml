@@ -1,0 +1,4 @@
+interface:
+  display_name: "Stock Observatory"
+  short_description: "Review brokerage health and meaningful changes"
+  default_prompt: "Use $observe-brokerage to check my selected brokerage account in observe-only mode and report meaningful changes and data gaps."

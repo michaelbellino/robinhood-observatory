@@ -1,0 +1,22 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "stock-observatory",
+  "version": "0.1.0",
+  "description": "Observe a selected brokerage account through connected ChatGPT tools, with explicit data gaps and no trading strategy.",
+  "license": "MIT",
+  "repository": "https://github.com/michaelbellino/robinhood-observatory",
+  "author": {"name": "Michael Bellino"},
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Stock Observatory",
+        "shortDescription": "Observe accounts in ChatGPT",
+        "longDescription": "A reusable observe-only workflow for live brokerage reads, options awareness, operational health, and concise change reports using your existing connected tools. Scheduling and hosted monitoring must be configured and verified separately. This instruction package does not restrict the underlying Robinhood plugin's permissions.",
+        "developerName": "Michael Bellino",
+        "category": "Productivity",
+        "capabilities": [],
+        "defaultPrompt": "Use $observe-brokerage to review my explicitly selected account in observe-only mode. Check freshness and account changes, report uncertainty, and keep real-money trading disabled."
+      }
+    }
+  }
+}

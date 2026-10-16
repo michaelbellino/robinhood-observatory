@@ -1,6 +1,6 @@
 # Capability matrix — 2026-10-16 UTC
 
-“Verified” refers to the stated environment only. A local synthetic test is not hosted brokerage evidence. No previews or real brokerage mutations were invoked.
+“Verified” refers to the stated environment only. A local synthetic test is not hosted brokerage evidence. No previews, trading mutations or transfers were invoked. One explicitly authorized reversible watchlist write test succeeded and restored the original state.
 
 | Capability | Status | Evidence / limit |
 |---|---|---|
@@ -11,12 +11,16 @@
 | Read-only OAuth scope | Unsupported in advertised metadata | Only internal advertised; application read allowlist is the enforcement boundary |
 | Token lifetime, rotation, long-lived refresh, broker revocation | Live unverified | Failure/rotation simulations pass; no revocation endpoint advertised; local disconnect implemented |
 | Existing ChatGPT connector account reads | Verified in that connector | Active selected account and caller access/type/options level rechecked; private results omitted from source |
+| Native connector reversible write | Verified, non-trading only | Added SPY to an empty watchlist, read back, removed, read back empty; evidence/native-connector-2026-10-16.json |
+| Native ChatGPT observation workflow | Packaged; scheduling pending | Repository-backed Stock Observatory skill uses existing tools; instructions do not hide mutation tools or prove durable scheduling |
+| Two-minute ChatGPT schedule | Unverified / not enabled | Current automation tool limits frequency to hourly; official existing-chat UI docs describe minute intervals; signed-in UI verification pending |
+| MCP Events wake-up | Documented; not implemented here | Existing Robinhood plugin is absent from available automation event sources; a custom subscribed event server is required |
 | Hosted app account binding/read | Unverified | No independently authorized token; runtime rejects unselected/ineligible account |
 | Equity portfolio/positions/orders/quotes | Connector reads and local schema handling verified | No claim of independently hosted live data; source/receipt timestamps distinct |
 | Options instruments/quotes/Greeks/IV/liquidity | Connector sample reads verified | Contract multiplier and expiration returned; unavailable attributes remain null |
 | Single-leg and multi-leg options | Advertised, not execution-verified | Current connector metadata; approval level is not a successful preview/trade |
 | Stock-option combo, arbitrary custom structure execution | Unsupported | Marked unsupported; no broker write path exists |
-| Broker preview/place/cancel/replace/exercise/transfer | Disabled / inaccessible | Allowlist rejects even discovered write/preview tools; no generic proxy |
+| Hosted broker preview/place/cancel/replace/exercise/transfer | Disabled / inaccessible in hosted runtime | Allowlist rejects discovered write/preview tools; no generic proxy. Native ChatGPT connector exposes broader tools; its skill is not an enforcement boundary |
 | Options deliverable/exercise style/settlement details | Unknown where unavailable | No automatic 100-share deliverable or uniform-hours assumption |
 | Broker alert events | Restricted / incomplete | User-wide alert schema rejected without explicit account binding |
 | Crypto/grouped/other asset coverage | Partial / unknown | Read selected linked account if schema supports; total open-order coverage never falsely complete |

@@ -1,0 +1,57 @@
+{
+  "date_utc": "2026-10-16",
+  "environment": "existing authenticated ChatGPT Robinhood connector",
+  "private_account_identifiers_and_values_retained": false,
+  "account_selection": "Previously selected immutable account identity rechecked; private identity omitted",
+  "reads": {
+    "active_account_caller_access_type_options_level": "success",
+    "portfolio_and_buying_power": "success",
+    "equity_positions": "success",
+    "option_positions": "success",
+    "equity_orders": "success; pagination complete",
+    "option_orders": "success; pagination complete",
+    "watchlist_items": "success",
+    "equity_quote": {
+      "symbol": "SPY",
+      "venue_last_trade_time": "2026-10-16T17:56:39.757900704Z",
+      "venue_bid_time": "2026-10-16T17:56:39.538764688Z",
+      "venue_ask_time": "2026-10-16T17:56:39.538764688Z",
+      "official_prior_close_date": "2026-10-15",
+      "official_prior_close_source": "sip-list-exchange-close"
+    }
+  },
+  "reversible_write_test": {
+    "object": "preexisting empty writable watchlist; private ID/name omitted",
+    "before": "confirmed empty",
+    "add": "SPY; broker returned ok",
+    "readback": "confirmed SPY present",
+    "remove": "SPY; broker returned ok",
+    "cleanup_readback": "confirmed empty; original state restored",
+    "trades_submitted": false,
+    "funds_moved": false
+  },
+  "does_not_prove": [
+    "real order preview or execution",
+    "hosted OAuth or refresh credentials",
+    "background scheduler availability or enabled state",
+    "documented request quota",
+    "complete asset-class coverage",
+    "full trading-session reliability"
+  ],
+  "workflow_package": {
+    "name": "stock-observatory",
+    "version": "0.1.0",
+    "archive_sha256": "08aa8f1f776d4c641ba0cbed0ceef3f37b8134d960194dde135d1b0bb9564c6d",
+    "private_creation": "success",
+    "source_readback": "skill verified byte-for-byte; ingestion adds private creator contact metadata to the manifest; public source omits that contact",
+    "task_enabled": false,
+    "installation_status": "observe-brokerage skill appeared in active skill catalog after creation",
+    "local_validation": [
+      "skill frontmatter valid",
+      "archive contents and CRC verified",
+      "two builds identical",
+      "ruff pass",
+      "source secret scan pass"
+    ]
+  }
+}
