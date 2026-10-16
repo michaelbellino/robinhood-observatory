@@ -26,11 +26,11 @@ Local development: `uv run python -m scripts.init_local` creates mode-0600 `.env
 
 Verified public metadata is retained in `evidence/broker-public-metadata-2026-10-16.json`. Official endpoint: `https://agent.robinhood.com/mcp/trading`. Metadata advertises authorization code with PKCE S256, refresh_token, public client authentication (`none`), resource indicator and issuer response. It advertises only `internal` scope, **not a distinct read-only grant**. The runtime enforces a strict read allowlist; broker-issued credentials may carry broader permissions than the application uses.
 
-The independent unauthenticated dynamic-registration probe accepted a localhost callback. This is not hosted authorization. Robinhood's current official onboarding article lists supported platforms and localhost, and directs other platforms to support. A custom Railway-hosted client therefore needs broker confirmation or a successful, supported registration/consent path. No account-opening requirement for reusing the owner's existing account has been verified.
+The initial registration probe accepted localhost. The deployed app subsequently registered its exact Railway HTTPS callback successfully. This verifies hosted registration, not consent or account access. Robinhood's current official onboarding article lists supported platforms and localhost, and directs other platforms to support. A custom Railway-hosted client therefore needs broker confirmation or a successful, supported registration/consent path. No account-opening requirement for reusing the owner's existing account has been verified.
 
 When the deployed owner login is working:
 
-1. Confirm with Robinhood that this hosted, read-only client and its exact HTTPS redirect are supported. Do not disguise Railway as localhost or a supported third-party client.
+1. Use the registered, exact Railway HTTPS callback. If actual consent or unattended refresh is refused, retain the sanitized error and ask Robinhood support about that concrete blocker. Do not disguise Railway as localhost or another client.
 2. Sign in, choose **Connect Robinhood**, and complete Robinhood's own consent. The application discovers pinned official metadata, registers its own client, generates PKCE/state and stores credentials encrypted in PostgreSQL. No chat connector tokens or browser cookies are imported.
 3. The callback is exactly `PUBLIC_URL + /oauth/robinhood/callback`. A missing/wrong issuer, expired state, different owner, missing lifetime or malformed response fails closed.
 4. Choose **Verify account**, then explicitly select the eligible account by masked number/type. Nicknames have no authorization meaning. The app binds one account; changing accounts requires a different database to prevent mixed histories.

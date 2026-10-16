@@ -5,8 +5,8 @@
 | Capability | Status | Evidence / limit |
 |---|---|---|
 | Official Trading MCP endpoint and auth metadata | Verified, unauthenticated | Public metadata HTTP 200; evidence JSON retained |
-| Dynamic client registration | Verified for localhost only | POST official registration endpoint accepted localhost redirect; no authorization/token obtained |
-| Custom Railway-hosted OAuth | Unverified / blocked | Official docs direct unlisted platforms to support; hosted callback/consent not established |
+| Dynamic client registration | Verified for localhost and deployed Railway callback | Hosted app registered exact HTTPS callback with PKCE S256; no authorization/token obtained |
+| Custom Railway-hosted OAuth | Registration verified; consent unverified | Actual deployed app received registration success; owner consent/live reads still pending |
 | PKCE, grants, client authentication | Metadata verified | S256, authorization_code + refresh_token, token endpoint auth none |
 | Read-only OAuth scope | Unsupported in advertised metadata | Only internal advertised; application read allowlist is the enforcement boundary |
 | Token lifetime, rotation, long-lived refresh, broker revocation | Live unverified | Failure/rotation simulations pass; no revocation endpoint advertised; local disconnect implemented |
@@ -23,15 +23,15 @@
 | Streaming/tick latency | Unsupported in this version | MCP request polling only; no guaranteed latency |
 | Broker request quota | Unverified | No published quota located; conservative shared 6 requests/minute application budget |
 | Exchange calendars | Local verified | Holiday, early close and DST tests; unknown options hours retain active polling |
-| FastAPI/dashboard/MCP protection | Local verified | Anonymous 401, read→control 403, wrong owner rejection, CSRF/Host protections; hosted pending |
-| Persistent pause/checkpoints/event dedupe | Local fixture verified | PostgreSQL-specific leadership/restore tests queued for CI, not locally passed |
+| FastAPI/dashboard/MCP protection | Local and deployed boundary verified | Deployed anonymous 401, read→control 403, authenticated status and MCP initialization/tool list; owner browser login pending |
+| Persistent pause/checkpoints/event dedupe | Real PostgreSQL fixture verified | Concurrent leadership, crash recovery, pause/checkpoint persistence and restore pass in CI |
 | OpenAI summaries and hard app reservation limits | Local fixture verified | Actual API key/model absent; default spend/calls zero; monitoring works without analysis |
 | External stopped-worker detection | Implemented sender, delivery unverified | Live external check/account/channel not configured |
-| Backups and isolated restoration | Implemented, unverified on PostgreSQL | Real round-trip CI gate provided; local PostgreSQL unavailable |
-| Railway deployment | Not deployed | Empty isolated project/service definitions only; no production DB/domain/credentials |
+| Backups and isolated restoration | Real PostgreSQL fixture restore verified; production blocked | Native Railway backup scheduling requires Pro on the current Hobby workspace; no subscription changed |
+| Railway deployment | Deployed | Private PostgreSQL and worker; HTTPS web; immutable source; dedicated credentials; paused and unbound |
 | ChatGPT Secure MCP Tunnel | Documented approach verified; connection unverified | Runtime key, tunnel/workspace association and supported binary enrollment pending |
 | Full trading-session observation | Pending, not started | Auto-scheduled by first successful live cycle; no short test substituted |
-| Canvas design surface | Unavailable in this session | No callable new-Canvas surface; responsive source UI implemented, browser visual review pending |
+| Canvas design surface | Unavailable in this session | No callable new-Canvas surface; responsive source UI implemented, deployed public shell inspected; authenticated/mobile visual review pending |
 | Prior Webull materials | No reusable material readily located | No old methodology copied; search did not delay implementation |
 
 ## Primary sources inspected

@@ -1,0 +1,44 @@
+{
+  "date": "2026-10-16",
+  "origin": "https://web-production-0eaab.up.railway.app",
+  "anonymous": {
+    "/api/status": 401,
+    "/mcp/read/": 401,
+    "/mcp/control/": 401
+  },
+  "read_status_http": 200,
+  "read_cannot_control": 403,
+  "pause_first": [
+    200,
+    {
+      "paused": true,
+      "replayed": false
+    }
+  ],
+  "pause_replayed": [
+    200,
+    {
+      "paused": true,
+      "replayed": true
+    }
+  ],
+  "state_after_worker_redeploy": {
+    "paused": true,
+    "account_verified": false,
+    "last_success": null,
+    "mode": "observe_only",
+    "real_trading": "disabled"
+  },
+  "broker_registration": {
+    "accepted": true,
+    "redirect_uri": "https://web-production-0eaab.up.railway.app/oauth/robinhood/callback",
+    "pkce": "S256",
+    "scope": "internal",
+    "consent_verified": false
+  },
+  "mcp_read_tool_list": [
+    "monitor_status",
+    "monitor_history"
+  ],
+  "scope": "Hosted smoke checks only. No broker token or live account data."
+}

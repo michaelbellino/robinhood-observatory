@@ -2,19 +2,19 @@
 
 ## Result
 
-**Local implementation verification passes. Production acceptance is incomplete.** No independently authenticated hosted broker session, production database, external failure delivery, restored production backup or full trading-day run exists yet. The existing ChatGPT connector's successful reads are separate evidence and are never substituted for application credentials.
+**Local implementation verification passes. Production acceptance is incomplete.** The private production database, web and worker are deployed. No independently authenticated hosted broker session, external failure delivery, restored production backup or full trading-day run exists yet. The existing ChatGPT connector's successful reads are separate evidence and are never substituted for application credentials.
 
 | # | Required acceptance | Verified evidence | Outstanding gate |
 |---:|---|---|---|
-| 1 | Hosted auth + authorized live reads | Official metadata; localhost DCR; existing connector account eligibility/read recheck | Supported hosted consent, account binding, lifetime/refresh/restart/revocation |
+| 1 | Hosted auth + authorized live reads | Official metadata; hosted Railway callback DCR accepted; existing connector account eligibility/read recheck | Supported hosted consent, account binding, lifetime/refresh/restart/revocation |
 | 2 | Equities/options, timestamps, unknowns | Connector quote/spec sample reads; synthetic collection/contract tests; adjusted multiplier test | App's live held-position mapping/reconciliation |
-| 3 | Restart recovery/pause/checkpoints | Durable local SQLite restart tests; interrupted work handling | PostgreSQL restart test and deployed restart |
-| 4 | One scheduler/no duplicate alerts | Event idempotence and delivery ambiguity tests; PG advisory-lock implementation | PostgreSQL concurrent/crash leader tests; real receiver dedupe |
+| 3 | Restart recovery/pause/checkpoints | Real PostgreSQL pause/checkpoint persistence and lock crash/release tests (CI); interrupted work handling | Live broker checkpoint recovery after reconnect |
+| 4 | One scheduler/no duplicate alerts | Event idempotence/delivery ambiguity and real PG concurrent/crash leadership tests | Real receiver dedupe; deployed concurrent-leader drill |
 | 5 | Throttle/stale/auth/DB failures | Injected 401/403/429, full Retry-After, malformed/absent data, stale state retention, DB-failure no heartbeat | Live service fault drills |
-| 6 | Reject unauthorized dashboard/MCP | 401 anonymous; 403 read→control; wrong owner; CSRF/Origin; DNS-rebinding; sanitized error tests | Deployed direct/tunnel rejection checks |
+| 6 | Reject unauthorized dashboard/MCP | Deployed 401 anonymous API/MCP and 403 read→control; local wrong owner, CSRF/Origin, DNS-rebinding and sanitized error tests | Tunnel/client connection and authenticated owner browser login |
 | 7 | Monitor without model | Worker succeeds with AI disabled/failing/capped; no repeated unreserved calls | Live prolonged observation |
 | 8 | External stopped/stalled detection | Success-only ping and failed-delivery tests | External account/check/channel setup and stopped-worker DOWN/UP receipt |
-| 9 | Backup restoration | Consistent-snapshot encrypted export and guarded hash-verified restore implemented; target guard tests | Real PostgreSQL round-trip (CI gate) + actual deployment isolated restore |
+| 9 | Backup restoration | Real PostgreSQL encrypted backup and isolated hash-verified restore passed in CI; target guard tests | Actual deployment isolated restore and backup scheduling |
 | 10 | No mutations/no source/log secrets | Strict allowlist tests; mutation/preview routes absent; source scan; synthetic error-log redaction | Repeat scan/review before publication and inspect redacted production logs |
 
 ## Retained files
@@ -24,9 +24,9 @@
 - `evidence/broker-public-metadata-2026-10-16.json`: unauthenticated official server metadata, no tokens.
 - `docs/connector-metadata-2026-10-16.json`: tool declarations inspected from the existing integration; describes advertised support, not successful execution.
 - `evidence/local-measurements.json`: empty-app HTTP liveness timing and explicit limits of resource/polling measurement.
-- CI workflow: disposable PostgreSQL 17, real lock/restart/migration/restore tests, typecheck, lint, scan and dependency audit. Not run remotely yet because the GitHub repository has not been created.
+- CI workflow: disposable PostgreSQL 17, real lock/restart/migration/restore tests, typecheck, lint, scan and dependency audit. Passed remotely: **94 passed, 0 skipped**; see `evidence/ci-release-2026-10-16.json` and its linked run.
 
-Alembic migration upgrade and schema-drift check passed locally using SQLite only. The Railway IaC declaration typechecked with the locked SDK. JavaScript syntax check passed. Docker image digests were checked against the official registry, but this environment has no Docker daemon; image build/Compose execution remain unverified.
+Alembic migration upgrade and schema-drift check passed locally using SQLite only. The Railway IaC declaration typechecked with the locked SDK. JavaScript syntax check passed. Docker image digests were checked against the official registry, but this environment has no Docker daemon; Railway Docker builds and web/worker startup passed; local Compose execution remains unverified.
 
 ## Polling and measurements
 
@@ -40,4 +40,4 @@ The empty local app answered 20 liveness requests with mean 0.976 ms and maximum
 
 Full-session observation is **pending, not started**. The first completed independently authenticated live cycle schedules the next complete XNYS reference session. Stored observation evidence records successful/failed cycles and maximum gap against a 600-second criterion. Instrument-specific options hours require separate coverage once verified. A pending or short smoke result must never be described as a completed session.
 
-The responsive dashboard source and HTTP shell work locally; the cloud browser refused localhost with `ERR_BLOCKED_BY_CLIENT`. Desktop/mobile visual review is pending. No callable new-Canvas creation surface was available in this session; the repository remains the design/source record. No screenshot or mock values are represented as live data.
+The responsive dashboard source and HTTP shell work locally; the cloud browser refused localhost with `ERR_BLOCKED_BY_CLIENT`. The deployed desktop shell renders correctly with explicit unknowns; mobile visual review is pending. No callable new-Canvas creation surface was available in this session; the repository remains the design/source record. No screenshot or mock values are represented as live data.

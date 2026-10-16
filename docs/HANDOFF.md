@@ -1,25 +1,19 @@
 # Durable implementation handoff — 2026-10-16
 
-## Current state
+The application and deployment exist. Read DEPLOYMENT-STATUS.md first for the latest observed state; ACCEPTANCE.md and CAPABILITIES-2026-10-16.md distinguish synthetic, real PostgreSQL, hosted smoke, existing-connector and independent-broker evidence.
 
-This repository implements the application, migrations, containers, worker, dashboard, auth boundaries, MCP tools, broker OAuth/read allowlist, bounded AI adapter, options/paper data models, failure handling, restore tooling and manual release/CI workflows. See acceptance and capability documents for the exact distinction between local verification, connector evidence and live deployment.
+## Implemented and verified
 
-An isolated Railway project named `robinhood-observatory` and empty `web`/`worker` service definitions were created. Restart ALWAYS, sleeping disabled and commands/Dockerfile path were configured for a future deployment. No database, volume, running deployment, public domain, credentials or paid usage was created. Existing applications were left alone. An initial public-domain action was rejected by automatic approval review because the service was not yet authenticated/deployed; no workaround was attempted.
+FastAPI/dashboard, owner authorization, read/control MCP separation, official Robinhood OAuth with durable encrypted tokens, strict brokerage read allowlist, bounded polling, calendars/options models, observe-only versioned strategy interface, paper-only proposals, bounded OpenAI adapter, database leadership/checkpoints/audit/dedupe, failure handling and portable release/recovery tooling. CI has 94 passing tests including a real isolated PostgreSQL restore. Web, worker and private database are deployed from an immutable commit. Hosted unauthorized rejection, read-only authorization, MCP tool discovery, pause idempotence and persistence after worker restart are verified. Evidence files contain no private financial records or credentials.
 
-A local git repository is prepared for `michaelbellino/robinhood-observatory`. The connected GitHub capability cannot create repositories, and the browser is signed out. No GitHub remote repository or hosted dashboard exists yet. Finish secure GitHub sign-in, create the empty public MIT repository, publish this reviewed source, and run CI. Do not upload `.env`, local financial state, tokens, dumps or private logs.
+## Resume from here
 
-Existing Robinhood connector reads were reverified, but no credential was copied or extracted. The app needs its own supported OAuth consent. Official metadata supports refreshable PKCE clients and localhost registration worked; custom Railway platform support and account reuse remain unconfirmed. Do not open/fund another account or use unofficial login automation. Prepared support inquiry and exact callback fields are in SETUP.md.
+- Owner completes dashboard GitHub login and independent Robinhood consent/account selection in their browser; the cloud browser blocked the dashboard sign-in navigation. Registration already succeeded for the deployed HTTPS broker callback. Do not ask for support contact unless the actual supported consent/refresh path produces a blocker. Do not reuse this chat's broker session or credentials.
+- Verify the selected account's caller-relative eligibility, type/options level and live reconciliation. Record actual token lifetime, rotation and recovery without retaining secret values in evidence. Keep unknown values and incomplete asset coverage explicit.
+- Resolve the production backup gate. Native Railway backup scheduling requires Pro on the current Hobby workspace; no upgrade is authorized. CI restoration is verified but production restoration is not. A subscription change affects shared billing and requires a concrete owner decision.
+- Enroll and test an external dead-man check and generic notification channel. Use a 35-minute period plus 5-minute grace for the prepared off-hours cadence, then verify actual DOWN/UP receipt during a deliberate worker stop/stall. Do not claim monitoring will wake a chat.
+- Enroll a dedicated OpenAI Secure MCP Tunnel using the intended organization/workspace, supported client and restricted runtime key, or verify the chosen client's authenticated HTTPS support. Keep read and control credentials separate. No plugin is installed merely to test connectivity; no arbitrary broker proxy exists.
+- Resume live monitoring only after authenticated account binding. The service schedules its own next full-session observation on first successful live sync. Retain results and review real polling/error/resource/cost evidence; report pending until the session elapses.
+- AI remains disabled at a zero budget. Later methodology work belongs in METHODOLOGY-HANDOFF.md; no investment strategy or real trading is authorized in this phase.
 
-## Next authorized implementation steps after unavoidable access/approval
-
-1. Finish secure GitHub authentication and publish source; run the PostgreSQL CI gates. Visual review the authenticated UI in a reachable environment.
-2. Obtain the concrete first-month incremental Railway approval in COSTS.md. The brokerage test allowance does not imply a recurring hosting budget.
-3. Provision only this project's private DB/volume, configure owner OAuth/secrets, deploy web/worker, and verify public endpoint rejection before exposure/connection.
-4. Confirm supported custom hosted Robinhood registration/consent, reuse of the intended existing agent account, quotas and refresh behavior. Owner completes broker consent and explicit account selection. Leave monitoring paused if blocked.
-5. Configure daily backups and demonstrate an isolated encrypted export/restore. Verify real leadership/restart/database-failure behavior.
-6. Configure the external dead-man channel, have owner verify receipt, and retain a deliberate worker-stop/stall DOWN/UP result.
-7. Verify OpenAI Platform tunnel/workspace access, pin the supported client, deploy the private sidecar only if necessary, then install/test separate stored-read and monitor-control connections. AI can remain disabled with no model key.
-8. Resume live collection and let the application schedule/record the next full reference session. Report pending until elapsed. Review actual request rate, failures, resources and cost before any reliability claim.
-9. Develop investment methodology as a separate task using METHODOLOGY-HANDOFF.md. No real trading in this phase, even for a small test.
-
-All independent work is retained in the source package. Remaining gates need credentials, broker/platform confirmation or paid hosting consent; they are not reported as completed.
+The repository is the source of truth. Production source is pinned to a specific SHA; pushes do not auto-deploy. Release deliberately and retain rollback/credential rotation instructions in DEPLOYMENT.md and RECOVERY.md. Only isolated application resources may be modified.

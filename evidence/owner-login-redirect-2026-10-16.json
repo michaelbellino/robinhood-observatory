@@ -1,0 +1,15 @@
+{
+  "http": 302,
+  "redirect_scheme": "https",
+  "redirect_host": "github.com",
+  "redirect_path": "/login/oauth/authorize",
+  "callback": [
+    "https://web-production-0eaab.up.railway.app/auth/callback"
+  ],
+  "scope": [
+    "read:user"
+  ],
+  "pkce": [
+    "S256"
+  ]
+}

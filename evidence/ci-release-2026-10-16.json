@@ -1,0 +1,11 @@
+{
+  "observed_date": "2026-10-16",
+  "commit": "0b82049a221707987405af48c4b22b448c8994c8",
+  "run_url": "https://github.com/michaelbellino/robinhood-observatory/actions/runs/38933594118",
+  "result": "success",
+  "pytest": {"passed": 94, "skipped": 0, "seconds": 5.40},
+  "workflow_seconds": 56,
+  "artifact": "verification-evidence",
+  "artifact_sha256": "ea79f72203c7e6ec3bb1156d87ea570f516c67f6a55b9b13522f8e5e1e16d26f",
+  "scope": "Synthetic tests including real PostgreSQL leadership, reconnect, migrations, encrypted backup and isolated restore. This does not verify production restoration or live broker OAuth."
+}
