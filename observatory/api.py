@@ -19,7 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from .broker import ReadOnlyBroker, BrokerError
 from .db import Database, State, Audit, PaperProposal, Secret, now
 from .domain import Paper
-from .oauth import RobinhoodOAuth
+from .oauth import RobinhoodOAuth, OAuthProblem
 from .security import Vault, bearer_principal, principal, require_control
 from .service import status, history, change_pause, start_observation
 from .settings import Settings
@@ -166,6 +166,10 @@ def create_app(settings=None, database=None):
     async def broker_error(request, exc):
         return JSONResponse({"detail": exc.code}, status_code=503)
 
+    @app.exception_handler(OAuthProblem)
+    async def oauth_error(request, exc):
+        return JSONResponse({"detail": str(exc), "error_code": exc.code, "stage": exc.stage}, status_code=400)
+
     @app.exception_handler(ValueError)
     async def value_error(request, exc):
         return JSONResponse(
@@ -279,10 +283,21 @@ def create_app(settings=None, database=None):
         actor = require_control()
         return {"authorization_url": await broker_oauth.begin(actor["sub"])}
 
-    @app.get("/oauth/robinhood/callback")
-    async def broker_callback(request: Request, state: str, code: str, iss: str):
+    @app.get("/api/robinhood/diagnostics")
+    async def connection_diagnostics():
         actor = require_control()
-        result = await broker_oauth.callback(actor["sub"], state, code, iss)
+        return broker_oauth.diagnostics(actor["sub"])
+
+    @app.get("/oauth/robinhood/callback")
+    async def broker_callback(request: Request):
+        actor = require_control()
+        params = request.query_params
+        if any(len(params.getlist(key)) > 1 for key in ("state", "code", "iss", "error")):
+            broker_oauth.record(actor["sub"], "callback", "invalid_callback")
+            raise OAuthProblem("invalid_callback")
+        result = await broker_oauth.callback(
+            actor["sub"], params.get("state"), params.get("code"), params.get("iss"), params.get("error")
+        )
         with db.session() as s:
             row = s.get(State, 1)
             row.paused, row.account_verified, row.status = True, False, "select_account"
@@ -392,6 +407,10 @@ def create_app(settings=None, database=None):
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     app.mount("/mcp/read", read_app)
     app.mount("/mcp/control", control_app)
+    diagnostic_log = logging.getLogger("observatory")
+    diagnostic_log.setLevel(logging.INFO)
+    if not diagnostic_log.handlers:
+        diagnostic_log.addHandler(logging.StreamHandler())
     for name in ["httpx", "httpcore", "authlib", "mcp", "sqlalchemy"]:
         logging.getLogger(name).setLevel(logging.CRITICAL)
     return app

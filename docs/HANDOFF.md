@@ -17,3 +17,7 @@ FastAPI/dashboard, owner authorization, read/control MCP separation, official Ro
 - AI remains disabled at a zero budget. Later methodology work belongs in METHODOLOGY-HANDOFF.md; no investment strategy or real trading is authorized in this phase.
 
 The repository is the source of truth. Production source is pinned to a specific SHA; pushes do not auto-deploy. Release deliberately and retain rollback/credential rotation instructions in DEPLOYMENT.md and RECOVERY.md. Only isolated application resources may be modified.
+
+## Active OAuth investigation
+
+Owner GitHub login is verified. Robinhood Allow fails before any app callback; shared default client/redirect acceptance is a hypothesis awaiting the failed consent response detail. Read OAUTH-INVESTIGATION-2026-10-16.md before changing authentication. The new owner-only diagnostics and protocol regression tests address callback/error-reporting gaps without weakening OAuth. No live broker connection or full-session observation has been proven.

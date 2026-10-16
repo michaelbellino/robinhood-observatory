@@ -1,19 +1,19 @@
-# Deployment status — 2026-10-16, 16:57 UTC
+# Deployment status — 2026-10-16 (updated during consent investigation)
 
 - Public MIT repository: https://github.com/michaelbellino/robinhood-observatory
 - Dashboard: https://web-production-0eaab.up.railway.app/
 - Isolated Railway project: `a7712f84-22c7-449a-995e-11c7f985685e`; production environment `378f95b4-5e05-46c3-a2ac-9d2a53d0eec0`.
 - Web, persistent worker and private PostgreSQL are deployed successfully. Database and worker have no public domains or TCP proxies. Sleeping is disabled; restart policy is ALWAYS; one worker replica, PostgreSQL advisory leadership.
-- Runtime source is pinned to `0b82049a221707987405af48c4b22b448c8994c8`. Ordinary pushes do not deploy. Later documentation commits do not change running code.
+- Initial runtime source was pinned to `0b82049a221707987405af48c4b22b448c8994c8`. OAuth diagnostic changes are verified and released deliberately by exact commit; inspect Railway deployment metadata for the current pin. Ordinary pushes do not deploy.
 - CI: **94 passed, no skips**, including real PostgreSQL concurrency/crash recovery, persisted pause/checkpoints, migrations and encrypted isolated backup restoration.
 - Hosted checks: anonymous API/read-MCP/control-MCP return 401; authenticated stored status returns 200; read credentials receive 403 on controls; repeated pause request is idempotent. Paused state survives worker redeployment. MCP initialization/tool listing succeeds with only monitor_status and monitor_history on the read endpoint.
-- Dedicated GitHub OAuth app registered with exact callback, no wildcard/device flow; secret transferred directly into this service's Railway variables without appearing in prompts, screenshots, source or logs. Owner subject is explicitly bound. Deployed /auth/login returns 302 to GitHub HTTPS, read:user, PKCE S256. End-to-end owner login is pending: the cloud browser's URL policy blocked its navigation and no workaround was attempted.
-- The hosted app independently registered its exact Robinhood callback successfully. Broker consent, live reads, binding, actual token lifetime/refresh/restart/revocation remain **unverified**. Monitoring is paused and unbound, with no successful live synchronization.
+- Dedicated GitHub OAuth app registered with exact callback, no wildcard/device flow; secret transferred directly into this service's Railway variables without appearing in prompts, screenshots, source or logs. Owner subject is explicitly bound. Deployed /auth/login returns 302 to GitHub HTTPS, read:user, PKCE S256. The owner subsequently completed GitHub sign-in; production callback and authenticated API logs verify that login works.
+- The hosted app received a Robinhood registration response echoing its callback, but consent fails after Allow. No broker callback reaches the app. This is not yet a working independent connection. See OAUTH-INVESTIGATION-2026-10-16.md for evidence and the remaining diagnostic. Live reads, binding and token behavior remain **unverified**. Monitoring is paused and unbound.
 - Model spending and call limits remain zero. No model credentials, brokerage writes, previews, transfers, or real orders were used.
 
 ## Remaining owner steps and access gates
 
-1. Open the dashboard in your browser, choose **Sign in**, then **Connect Robinhood** and complete the broker's own sign-in/consent. Choose **Verify account** and explicitly select the intended eligible account by masked number/type. Leave monitoring paused and report completion or the non-secret error. Do not send tokens/codes/screenshots containing credentials.
+1. Inspect the failed Robinhood consent request's HTTP status and non-secret error detail in the owner's browser. No Railway callback has arrived. Do not repeatedly retry or assume client registration proves the redirect is accepted. After resolving consent, explicitly select and verify the intended account; do not resume merely on the basis of its nickname.
 2. Native Railway backup creation and scheduling require **Pro**, according to this database's Backups screen. Current workspace is Hobby. No subscription change was made. Pro is $20/month versus Hobby $5/month, with corresponding included usage; actual incremental invoice depends on workspace usage. Decide on native Pro backups or a separately reviewed automated logical-backup destination before production reliability acceptance.
 3. External missed-heartbeat check/notification channel and OpenAI Secure MCP Tunnel still need their own account/organization enrollment. No existing application's credentials are reused. The public authenticated MCP server works, but no ChatGPT connection has yet been installed or exercised.
 

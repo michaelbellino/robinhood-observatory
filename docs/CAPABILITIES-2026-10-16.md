@@ -5,8 +5,8 @@
 | Capability | Status | Evidence / limit |
 |---|---|---|
 | Official Trading MCP endpoint and auth metadata | Verified, unauthenticated | Public metadata HTTP 200; evidence JSON retained |
-| Dynamic client registration | Verified for localhost and deployed Railway callback | Hosted app registered exact HTTPS callback with PKCE S256; no authorization/token obtained |
-| Custom Railway-hosted OAuth | Registration verified; consent unverified | Actual deployed app received registration success; owner consent/live reads still pending |
+| Dynamic client registration | Response verified; consent acceptance unverified | HTTP 200 echoes Railway redirect but returns a shared default client; this does not prove redirect allowlisting |
+| Custom Railway-hosted OAuth | Blocked at consent, under investigation | Owner reports Allow failure; no app callback observed. See OAUTH-INVESTIGATION-2026-10-16.md; redirect restriction is not yet confirmed |
 | PKCE, grants, client authentication | Metadata verified | S256, authorization_code + refresh_token, token endpoint auth none |
 | Read-only OAuth scope | Unsupported in advertised metadata | Only internal advertised; application read allowlist is the enforcement boundary |
 | Token lifetime, rotation, long-lived refresh, broker revocation | Live unverified | Failure/rotation simulations pass; no revocation endpoint advertised; local disconnect implemented |
@@ -23,7 +23,7 @@
 | Streaming/tick latency | Unsupported in this version | MCP request polling only; no guaranteed latency |
 | Broker request quota | Unverified | No published quota located; conservative shared 6 requests/minute application budget |
 | Exchange calendars | Local verified | Holiday, early close and DST tests; unknown options hours retain active polling |
-| FastAPI/dashboard/MCP protection | Local and deployed boundary verified | Deployed anonymous 401, read→control 403, authenticated status and MCP initialization/tool list; owner browser login pending |
+| FastAPI/dashboard/MCP protection | Local and deployed boundary verified | Deployed anonymous 401, read→control 403, authenticated status and MCP initialization/tool list; owner browser login verified in production callback/API logs |
 | Persistent pause/checkpoints/event dedupe | Real PostgreSQL fixture verified | Concurrent leadership, crash recovery, pause/checkpoint persistence and restore pass in CI |
 | OpenAI summaries and hard app reservation limits | Local fixture verified | Actual API key/model absent; default spend/calls zero; monitoring works without analysis |
 | External stopped-worker detection | Implemented sender, delivery unverified | Live external check/account/channel not configured |
