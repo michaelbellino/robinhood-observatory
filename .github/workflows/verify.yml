@@ -1,0 +1,43 @@
+name: Verify
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17.7-bookworm@sha256:86e0b703649d7a792bd9243ee28afc9d8f7c6b2b5638077c9d6882d4d472bbfd
+        env:
+          POSTGRES_PASSWORD: fixture-only
+          POSTGRES_DB: observatory_test
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:fixture-only@localhost:5432/observatory_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: 0.12.23
+          python-version: '3.12'
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - name: Version-matched PostgreSQL client tools
+        run: |
+          mkdir -p /tmp/pgtools
+          ln -s "$PWD/scripts/pgtool-container.sh" /tmp/pgtools/pg_dump
+          ln -s "$PWD/scripts/pgtool-container.sh" /tmp/pgtools/pg_restore
+          echo /tmp/pgtools >> "$GITHUB_PATH"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts && npm run check:infra
+      - run: uv run pytest -q --junitxml=evidence/ci-tests.xml
+      - run: uv run python scripts/secret_scan.py
+      - run: uv export --frozen --no-dev --no-emit-project -o /tmp/requirements.txt && uv run pip-audit -r /tmp/requirements.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verification-evidence
+          path: evidence/ci-tests.xml

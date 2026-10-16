@@ -1,0 +1,50 @@
+name: robinhood-observatory
+services:
+  database:
+    image: postgres:17.7-bookworm@sha256:86e0b703649d7a792bd9243ee28afc9d8f7c6b2b5638077c9d6882d4d472bbfd
+    environment:
+      POSTGRES_DB: observatory
+      POSTGRES_USER: observatory
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a local database password}
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U observatory"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+    networks: [private]
+  migrate:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://observatory:${POSTGRES_PASSWORD}@database:5432/observatory
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      database: {condition: service_healthy}
+    networks: [private]
+  web:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://observatory:${POSTGRES_PASSWORD}@database:5432/observatory
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    restart: unless-stopped
+    networks: [private, egress]
+  worker:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://observatory:${POSTGRES_PASSWORD}@database:5432/observatory
+    command: ["python", "-m", "observatory.worker"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    restart: unless-stopped
+    networks: [private, egress]
+volumes:
+  pgdata:
+networks:
+  private: {internal: true}
+  egress: {}

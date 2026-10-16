@@ -1,0 +1,42 @@
+name: Deliberate production release
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Exact reviewed commit SHA
+        required: true
+      release_window_acknowledged:
+        description: Monitoring interruption/reconciliation window reviewed
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+jobs:
+  release:
+    if: inputs.release_window_acknowledged
+    environment: railway-production
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
+      - name: Enforce exact SHA
+        env:
+          RELEASE_COMMIT: ${{ inputs.commit }}
+        run: |
+          [[ "$RELEASE_COMMIT" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli@5.69.0
+      - name: Deploy web and migrate
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_PROJECT_TOKEN }}
+        run: railway up --service web --environment production --ci
+      - name: Deploy worker
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_PROJECT_TOKEN }}
+        run: railway up --service worker --environment production --ci

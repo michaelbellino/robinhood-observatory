@@ -1,0 +1,14 @@
+{
+  "name": "robinhood-observatory-infrastructure",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "check:infra": "tsc --noEmit --module nodenext --moduleResolution nodenext --target es2022 .railway/railway.ts"
+  },
+  "devDependencies": {
+    "railway": "3.16.0",
+    "typescript": "5.9.3",
+    "@types/node": "22.18.6"
+  },
+  "type": "module"
+}

@@ -1,0 +1,14 @@
+{
+  "observed_date": "2026-10-16",
+  "environment": "local empty web, SQLite test state; no broker credentials",
+  "health_requests": 20,
+  "average_ms": 0.976,
+  "max_ms": 3.396,
+  "web_rss_kib": null,
+  "worker_cpu_ram": "unmeasured",
+  "production_resource_usage": "unmeasured",
+  "browser_visual_check": "blocked: cloud browser refused localhost (ERR_BLOCKED_BY_CLIENT)",
+  "live_polling_measurements": "pending independent OAuth",
+  "application_pacing": "shared 6 requests/minute; virtual-clock/DB reservation tests verify spacing and persisted Retry-After",
+  "resource_measurement_note": "Process isolation exposes a launcher RSS, not a trustworthy application RSS; measure Work.max_rss_kb and Railway resource metrics after deployment."
+}

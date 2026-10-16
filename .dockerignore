@@ -1,0 +1,11 @@
+.git
+.venv
+.env*
+private
+backups
+dist
+__pycache__
+tests
+evidence
+
+node_modules/
