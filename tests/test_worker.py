@@ -121,6 +121,33 @@ def test_events_deduplicate(db):
         assert s.scalar(select(func.count()).select_from(Event)) == 1
 
 
+def test_position_order_is_not_a_change(db):
+    before, after = payload(), payload()
+    before["equity_positions"].append({"symbol": "OTHER", "quantity": "1"})
+    after["equity_positions"] = list(reversed(before["equity_positions"]))
+    with db.session() as s:
+        assert record_events(s, after, before, "synthetic-snapshot-1") == []
+    with db.session() as s:
+        assert s.scalar(select(func.count()).select_from(Event)) == 0
+
+
+def test_repeated_position_transition_is_a_new_event_but_replay_is_not(db):
+    before, after = payload(), payload()
+    after["equity_positions"][0]["quantity"] = "3"
+    with db.session() as s:
+        first = record_events(s, after, before, "synthetic-snapshot-1")
+    with db.session() as s:
+        assert record_events(s, after, before, "synthetic-snapshot-1") == []
+    with db.session() as s:
+        record_events(s, before, after, "synthetic-snapshot-2")
+    with db.session() as s:
+        repeated = record_events(s, after, before, "synthetic-snapshot-3")
+    assert len(first) == len(repeated) == 1
+    assert first != repeated
+    with db.session() as s:
+        assert s.scalar(select(func.count()).select_from(Event)) == 3
+
+
 async def test_notification_is_generic_and_not_duplicated(db, settings, respx_mock):
     settings.notification_url = "https://notify.test/receiver"
     settings.notification_token = "synthetic"

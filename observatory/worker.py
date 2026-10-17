@@ -29,25 +29,29 @@ def fingerprint(obj):
 
 
 def position_signature(payload):
-    return [
+    positions = [
         {
-            k: x.get(k)
-            for k in [
-                "symbol",
-                "option_id",
-                "quantity",
-                "type",
-                "pending_assignment_quantity",
-                "pending_exercise_quantity",
-                "pending_expiration_quantity",
-            ]
+            "asset": key,
+            **{
+                k: x.get(k)
+                for k in [
+                    "symbol",
+                    "option_id",
+                    "quantity",
+                    "type",
+                    "pending_assignment_quantity",
+                    "pending_exercise_quantity",
+                    "pending_expiration_quantity",
+                ]
+            },
         }
         for key in ["equity_positions", "option_positions"]
         for x in payload.get(key, [])
     ]
+    return sorted(positions, key=lambda x: json.dumps(x, sort_keys=True))
 
 
-def record_events(session, payload, previous):
+def record_events(session, payload, previous, previous_snapshot_id=None):
     changes = []
     for key in ["equity_orders", "option_orders"]:
         for order in payload.get(key, []):
@@ -71,8 +75,10 @@ def record_events(session, payload, previous):
                 if previous:
                     changes.append(ident)
     if previous and position_signature(payload) != position_signature(previous):
+        # One event per committed transition, so A->B->A->B remains observable.
         ident = fingerprint(
-            {"kind": "positions", "from": position_signature(previous), "to": position_signature(payload)}
+            {"kind": "positions", "previous_snapshot_id": previous_snapshot_id,
+             "from": position_signature(previous), "to": position_signature(payload)}
         )
         if session.get(Event, ident) is None:
             session.add(
@@ -211,7 +217,8 @@ async def run_cycle(db, settings, vault, broker_factory=ReadOnlyBroker, connecti
                 .where(Snapshot.source == "robinhood_mcp_live")
                 .order_by(Snapshot.observed_at.desc())
             )
-            changes = record_events(s, payload, previous.payload if previous else None)
+            changes = record_events(s, payload, previous.payload if previous else None,
+                                    previous.id if previous else None)
             s.add(snap)
             row.last_success = now()
             row.status = "degraded" if payload.get("warnings") else "monitoring"
