@@ -14,5 +14,15 @@
     "postgres_skipped": 7
   },
   "runtime_and_operations_dependency_audit": "no_known_vulnerabilities",
-  "private_production_results": "retained separately; not a production acceptance claim"
+  "private_production_results": "retained separately; not a production acceptance claim",
+  "follow_up": {
+    "commit": "c19e1be28594fa54d7336179d57c9426b72ab02e",
+    "ci_passed": 181,
+    "ci_skipped": 0,
+    "ci_run_url": "https://github.com/michaelbellino/robinhood-observatory/actions/runs/38986000911",
+    "local_passed": 174,
+    "local_postgres_skipped": 7,
+    "position_alert_reordering_and_repeated_transition_regressions": "passed",
+    "isolated_fixture_restore_tables": 14
+  }
 }
