@@ -52,6 +52,14 @@ class Quote(StrictModel):
         age = (at - self.quoted_at).total_seconds()
         return "fresh" if -5 <= age <= max_age else "stale"
 
+    def book_freshness(self, at, max_age=60):
+        if self.bid_at is None or self.ask_at is None or self.bid is None or self.ask is None:
+            return "unknown"
+        ages = [(at - stamp).total_seconds() for stamp in (self.bid_at, self.ask_at)]
+        if self.bid <= 0 or self.ask <= 0 or self.bid > self.ask:
+            return "invalid"
+        return "fresh" if min(ages) >= -5 and max(ages) <= max_age else "stale"
+
 
 class Leg(StrictModel):
     contract: Contract
@@ -113,6 +121,13 @@ class Paper(StrictModel):
                     raise ValueError("Invalid iron condor legs")
             if len({(x.contract.underlying, x.contract.expiration, x.quantity) for x in self.legs}) != 1:
                 raise ValueError("Inconsistent iron condor")
+            puts = sorted((x for x in self.legs if x.contract.right == "put"), key=lambda x: x.contract.strike)
+            calls = sorted((x for x in self.legs if x.contract.right == "call"), key=lambda x: x.contract.strike)
+            ordered = puts + calls
+            if not all(a.contract.strike < b.contract.strike for a, b in zip(ordered, ordered[1:])):
+                raise ValueError("Iron condor strikes must be distinct and ordered")
+            if puts[0].side != calls[1].side or puts[1].side != calls[0].side:
+                raise ValueError("Iron condor wings must have consistent orientation")
         if self.structure == "roll" and not {"open", "close"}.issubset(
             {x.position_effect for x in self.legs}
         ):
@@ -125,7 +140,7 @@ def paper_cost_range(paper: Paper, quotes: dict[str, Quote], at: datetime):
     total = Decimal(0)
     for leg in paper.legs:
         quote = quotes.get(leg.contract.id)
-        if quote is None or quote.freshness(at) != "fresh" or leg.contract.multiplier is None:
+        if quote is None or quote.book_freshness(at) != "fresh" or leg.contract.multiplier is None:
             return {"estimated_net_debit": None, "fill_status": "unfilled", "reason": "Unknown/stale inputs"}
         price = quote.ask if leg.side == "buy" else quote.bid
         if price is None or quote.bid is None or quote.ask is None or quote.bid > quote.ask:

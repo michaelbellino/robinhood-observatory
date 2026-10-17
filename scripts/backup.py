@@ -18,7 +18,7 @@ def pg_env(url):
         raise ValueError("PostgreSQL URL required")
     return {
         **os.environ,
-        "PGHOST": parts.hostname or "localhost",
+        "PGHOST": parse_qs(parts.query).get("host", [parts.hostname or "localhost"])[0],
         "PGPORT": str(parts.port or 5432),
         "PGUSER": unquote(parts.username or ""),
         "PGPASSWORD": unquote(parts.password or ""),

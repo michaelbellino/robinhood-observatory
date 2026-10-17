@@ -21,7 +21,7 @@ jobs:
         with:
           version: 0.12.23
           python-version: '3.12'
-      - run: uv sync --frozen
+      - run: uv sync --frozen --group operations
       - run: uv run ruff check .
       - name: Version-matched PostgreSQL client tools
         run: |
@@ -34,6 +34,23 @@ jobs:
           node-version: '22'
       - run: npm ci --ignore-scripts && npm run check:infra
       - run: uv run pytest -q --junitxml=evidence/ci-tests.xml
+      - name: Backup runtime and isolated restore smoke
+        run: |
+          uv run python -c 'import os; from observatory.db import Database; Database(os.environ["TEST_DATABASE_URL"]).initialize_test()'
+          docker build -f Dockerfile.backup -t observatory-backup-test .
+          docker run --rm --network host -e DATABASE_URL="$TEST_DATABASE_URL" --entrypoint python observatory-backup-test -c '
+          import os,tempfile
+          from pathlib import Path
+          from cryptography.fernet import Fernet
+          from scripts.backup import backup
+          from scripts.backup_job import verify_isolated
+          os.environ["BACKUP_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
+          with tempfile.TemporaryDirectory() as d:
+              root=Path(d)
+              backup(root/"fixture.enc")
+              result=verify_isolated(root/"fixture.enc",root)
+              assert result["all_table_hashes_match"] and result["tables"] >= 10
+          '
       - run: uv run python scripts/secret_scan.py
       - run: uv export --frozen --no-dev --no-emit-project -o /tmp/requirements.txt && uv run pip-audit -r /tmp/requirements.txt
       - uses: actions/upload-artifact@v4

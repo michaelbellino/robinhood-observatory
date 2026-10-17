@@ -1,10 +1,11 @@
 """One serialized quote batch at a time, sharing the broker's durable request budget."""
 import time
+import uuid
 from datetime import timedelta
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from .broker import AuthorizationExpired, BrokerError, MalformedData, Throttled
 from .calendar import poll_delay
-from .db import MarketState, Snapshot, State, aware, now
+from .db import MarketState, MarketSample, Snapshot, State, aware, now
 from .domain import Quote, quote_from_broker
 
 
@@ -30,8 +31,7 @@ def market_status(db):
             quote = Quote.model_validate({k: v for k, v in item.items() if k != "asset"})
             side_ages = [(now() - at).total_seconds() for at in (quote.bid_at, quote.ask_at) if at]
             source_age = max(side_ages) if len(side_ages) == 2 else None
-            quote_state = "unknown" if source_age is None or quote.bid is None or quote.ask is None else (
-                "fresh" if min(side_ages) >= -5 and source_age <= 60 else "stale")
+            quote_state = quote.book_freshness(now())
             quotes.append({**item, "trade_freshness": quote.freshness(now()),
                            "quote_freshness": quote_state, "source_age_seconds": source_age,
                            "source_freshness_max_age_seconds": 60,
@@ -114,6 +114,19 @@ async def refresh_quotes(db, settings, broker):
             market.metrics["observed_rate_headers"] = getattr(broker, "rate_headers", {})
             market.metrics["configured_request_cap_per_minute"] = settings.broker_rpm
             market.metrics["batch_seconds"] = round(time.monotonic() - started, 3)
+            observed = now()
+            by_id = {q.instrument_id: q for q in quotes}
+            samples = []
+            for ident in batch:
+                quote = by_id.get(ident)
+                stamps = [quote.bid_at, quote.ask_at] if quote else []
+                age = max((observed - x).total_seconds() for x in stamps) if stamps and all(stamps) else None
+                samples.append({"asset": kind, "instrument_id": ident,
+                                "state": quote.book_freshness(observed) if quote else "missing",
+                                "source_age_seconds": age})
+            s.add(MarketSample(id=str(uuid.uuid4()), observed_at=observed,
+                              payload={"instruments": samples, "metrics": dict(market.metrics)}))
+            s.execute(delete(MarketSample).where(MarketSample.observed_at < observed - timedelta(days=14)))
         return "succeeded"
     except AuthorizationExpired:
         raise

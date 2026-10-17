@@ -35,7 +35,7 @@ def test_adjusted_contract_cost_and_no_fill():
         uncertainty="synthetic test",
         sources=["fixture"],
     )
-    q = Quote(instrument_id=c.id, bid="1", ask="2", mark="1.5", quoted_at=AT, received_at=AT)
+    q = Quote(instrument_id=c.id, bid="1", ask="2", mark="1.5", quoted_at=AT, bid_at=AT, ask_at=AT, received_at=AT)
     r = paper_cost_range(p, {c.id: q}, AT)
     assert Decimal(r["estimated_net_debit"]) == Decimal("41.20")
     assert r["fill_status"] == "unfilled"

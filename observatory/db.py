@@ -61,6 +61,13 @@ class Secret(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
+class MarketSample(Base):
+    __tablename__ = "market_samples"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+
+
 class OAuthFlow(Base):
     __tablename__ = "oauth_flows"
     state_hash: Mapped[str] = mapped_column(String(64), primary_key=True)

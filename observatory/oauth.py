@@ -4,6 +4,7 @@ import base64
 import hashlib
 import secrets
 import logging
+import math
 import uuid
 from datetime import timedelta
 from urllib.parse import urlencode
@@ -85,6 +86,9 @@ class RobinhoodOAuth:
             ).all()
             registration = self.vault.get(session, "robinhood_client")
             token_saved = session.get(Secret, "robinhood_tokens") is not None
+            token = self.vault.get(session, "robinhood_tokens") if token_saved else None
+            renewals = session.scalars(select(Audit).where(Audit.action == "broker_token_refreshed")
+                                      .order_by(Audit.occurred_at.desc()).limit(20)).all()
             return {
                 "redirect_uri": self.settings.public_url.rstrip("/") + "/oauth/robinhood/callback",
                 "registration_response_saved": bool(registration),
@@ -92,6 +96,13 @@ class RobinhoodOAuth:
                 "client_id_sha256_prefix": (digest(registration["client_id"])[:12] if registration else None),
                 "registration_proves_redirect_accepted_at_consent": False,
                 "credentials_saved": token_saved,
+                "token_health": {
+                    "expires_at": token.get("expires_at") if token else None,
+                    "reported_lifetime_seconds": token.get("expires_in") if token else None,
+                    "refresh_credential_present": bool(token and token.get("refresh_token")),
+                    "recent_refreshes": [{"at": aware(x.occurred_at).isoformat(), **x.details} for x in renewals],
+                    "revocation_verified": False,
+                },
                 "attempts": [{"at": aware(row.occurred_at).isoformat(), **row.details} for row in rows],
             }
 
@@ -283,10 +294,12 @@ class RobinhoodOAuth:
         return {"refresh_token_issued": bool(token.get("refresh_token")), "expires_at": token["expires_at"]}
 
     def validate_token(self, data, previous=None):
+        if not isinstance(data, dict):
+            raise AuthorizationExpired()
         if not data.get("access_token") or data.get("token_type", "").lower() != "bearer":
             raise AuthorizationExpired()
         lifetime = data.get("expires_in")
-        if not isinstance(lifetime, (int, float)) or lifetime <= 0:
+        if type(lifetime) not in (int, float) or not math.isfinite(lifetime) or lifetime <= 0:
             # Do not infer lifetime from undocumented JWT contents.
             raise ValueError("Token lifetime not supplied; broker verification required")
         data["expires_at"] = (now() + timedelta(seconds=lifetime)).isoformat()
@@ -324,7 +337,14 @@ class RobinhoodOAuth:
                 raise AuthorizationExpired() from None
             if response.status_code != 200:
                 raise AuthorizationExpired()
-            renewed = self.validate_token(response.json(), token)
+            try:
+                renewed = self.validate_token(response.json(), token)
+            except (ValueError, TypeError, AttributeError, OverflowError):
+                raise AuthorizationExpired() from None
             renewed["client_id"] = token.get("client_id") or registration["client_id"]
             self.vault.put(session, "robinhood_tokens", renewed)
+            session.add(Audit(id=str(uuid.uuid4()), actor="worker_or_owner", action="broker_token_refreshed",
+                              details={"expires_at": renewed["expires_at"],
+                                       "reported_lifetime_seconds": renewed["expires_in"],
+                                       "refresh_credential_changed": renewed.get("refresh_token") != token.get("refresh_token")}))
             return renewed["access_token"]

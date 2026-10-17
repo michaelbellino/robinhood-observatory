@@ -1,7 +1,7 @@
 import uuid
 from datetime import timedelta
 from sqlalchemy import select
-from .db import State, Snapshot, Event, Analysis, PaperProposal, Audit, Observation, Work, Secret, aware, now
+from .db import State, Snapshot, Event, Analysis, PaperProposal, Audit, Observation, Work, Secret, MarketSample, aware, now
 from .domain import Quote
 from .calendar import next_full_session
 from .market import market_status
@@ -101,32 +101,31 @@ def change_pause(db, actor, paused, request_id):
 
 
 def start_observation(db, actor):
-    start, end = next_full_session(now())
-    ident = str(uuid.uuid4())
+    return start_observations(db, actor, 1)[0]
+
+
+def start_observations(db, actor, count=1):
+    if not 1 <= count <= 5:
+        raise ValueError("Request one to five complete sessions")
+    cursor, identifiers = now(), []
     with db.session() as s:
-        existing = s.scalar(select(Observation).where(Observation.status == "pending"))
-        if existing:
-            return existing.id
-        s.add(
-            Observation(
-                id=ident,
-                starts_at=start,
-                ends_at=end,
-                evidence={
-                    "calendar": "XNYS",
-                    "coverage": "reference equity session; options hours may differ",
-                },
-            )
-        )
-        s.add(
-            Audit(
-                id=str(uuid.uuid4()),
-                actor=actor,
-                action="start_observation",
-                details={"observation_id": ident},
-            )
-        )
-    return ident
+        s.scalar(select(State).where(State.id == 1).with_for_update())
+        for _ in range(count):
+            start, end = next_full_session(cursor)
+            cursor = end
+            existing = s.scalar(select(Observation).where(Observation.starts_at == start))
+            if existing:
+                identifiers.append(existing.id)
+                continue
+            ident = str(uuid.uuid4())
+            s.add(Observation(id=ident, starts_at=start, ends_at=end, evidence={
+                "calendar": "XNYS", "coverage": "reference equity session; options hours may differ",
+                "quote_gap_limit_seconds": 120, "quote_source_age_limit_seconds": 60,
+                "acceptance_scope": "operational_continuity_only_not_strategy_or_execution"}))
+            s.add(Audit(id=str(uuid.uuid4()), actor=actor, action="start_observation",
+                        details={"observation_id": ident}))
+            identifiers.append(ident)
+    return identifiers
 
 
 def finalize_observations(db):
@@ -136,17 +135,44 @@ def finalize_observations(db):
         ):
             start, end = aware(observation.starts_at), aware(observation.ends_at)
             records = s.scalars(
-                select(Work).where(Work.started_at >= start, Work.started_at <= end).order_by(Work.started_at)
+                select(Work).where(Work.started_at < end,
+                                   (Work.finished_at >= start) | Work.finished_at.is_(None)).order_by(Work.started_at)
             ).all()
-            successes = [aware(x.finished_at) for x in records if x.state == "succeeded" and x.finished_at]
+            successes = sorted(aware(x.finished_at) for x in records
+                               if x.state == "succeeded" and x.finished_at and aware(x.finished_at) <= end)
             points = [start] + successes + [end]
             max_gap = max((b - a).total_seconds() for a, b in zip(points, points[1:]))
             good = len(successes) > 0 and all(x.state == "succeeded" for x in records) and max_gap <= 600
-            observation.status = "passed" if good else "failed_or_incomplete"
+            samples = s.scalars(select(MarketSample).where(MarketSample.observed_at >= start,
+                                                          MarketSample.observed_at <= end)
+                                .order_by(MarketSample.observed_at)).all()
+            instruments, stale_count, ages = {}, 0, []
+            for sample in samples:
+                for item in sample.payload["instruments"]:
+                    key = item["asset"] + ":" + item["instrument_id"]
+                    instruments.setdefault(key, []).append(aware(sample.observed_at))
+                    stale_count += item["state"] != "fresh"
+                    if item.get("source_age_seconds") is not None:
+                        ages.append(item["source_age_seconds"])
+            gaps = [max((b - a).total_seconds() for a, b in zip([start] + times, times + [end]))
+                    for times in instruments.values()]
+            quote_ok = bool(samples) and stale_count == 0 and max(gaps, default=float("inf")) <= 120
+            # Empty/missing quote evidence is incomplete, never an implicit pass.
+            observation.status = "passed" if good and quote_ok else "failed_or_incomplete"
             observation.evidence = {
                 **observation.evidence,
                 "successful_cycles": len(successes),
                 "max_gap_seconds": max_gap,
                 "gap_limit_seconds": 600,
                 "failed_cycles": sum(x.state != "succeeded" for x in records),
+                "account_continuity_passed": good,
+                "quote_continuity_passed": quote_ok,
+                "quote_samples": len(samples),
+                "quote_instruments": len(instruments),
+                "quote_nonfresh_or_missing": stale_count,
+                "quote_max_gap_seconds": max(gaps) if gaps else None,
+                "quote_max_source_age_seconds": max(ages) if ages else None,
+                "quote_gap_limit_seconds": 120,
+                "quote_source_age_limit_seconds": 60,
+                "acceptance_scope": "operational_continuity_only_not_strategy_or_execution",
             }

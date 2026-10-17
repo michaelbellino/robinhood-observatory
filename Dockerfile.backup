@@ -1,0 +1,16 @@
+FROM python:3.12.14-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS python
+WORKDIR /app
+RUN pip install --no-cache-dir uv==0.12.23
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --group operations --no-install-project
+
+FROM postgres:17.7-bookworm@sha256:86e0b703649d7a792bd9243ee28afc9d8f7c6b2b5638077c9d6882d4d472bbfd
+COPY --from=python /usr/local /usr/local
+COPY --from=python /app /app
+WORKDIR /app
+COPY scripts ./scripts
+RUN ldconfig && chown -R postgres:postgres /app
+USER postgres
+ENV PATH="/app/.venv/bin:/usr/lib/postgresql/17/bin:$PATH" PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+ENTRYPOINT []
+CMD ["timeout", "240", "python", "-m", "scripts.backup_job"]

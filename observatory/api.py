@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from mcp.server.transport_security import TransportSecuritySettings
 from .rate_limit import RequestLimiter
 from authlib.integrations.starlette_client import OAuth
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
@@ -24,7 +24,7 @@ from .domain import Paper
 from .oauth import RobinhoodOAuth, OAuthProblem
 from .enrollment import LocalEnrollment
 from .security import Vault, bearer_principal, principal, require_control
-from .service import status, history, change_pause, start_observation
+from .service import status, history, change_pause, start_observations
 from .market import market_status
 from .settings import Settings
 
@@ -461,9 +461,10 @@ def create_app(settings=None, database=None):
         return {"id": ident, "status": "paper_unfilled"}
 
     @app.post("/api/observation")
-    async def observation():
+    async def observation(sessions: int = Query(default=1, ge=1, le=5)):
         actor = require_control()
-        return {"id": start_observation(db, actor["sub"]), "status": "pending"}
+        ids = start_observations(db, actor["sub"], sessions)
+        return {"id": ids[0], "ids": ids, "status": "pending"}
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     app.mount("/mcp/read", read_app)
