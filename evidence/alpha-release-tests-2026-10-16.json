@@ -1,0 +1,18 @@
+{
+  "date": "2026-10-16 America/New_York",
+  "scope": "public source and synthetic/isolated test evidence only",
+  "commit": "6c1834f64e5a93c782704d62754e52df036a0155",
+  "ci": {
+    "passed": 179,
+    "skipped": 0,
+    "run": "https://github.com/michaelbellino/robinhood-observatory/actions/runs/38984854955",
+    "backup_image_restore_tables": 14,
+    "all_table_hashes_match": true
+  },
+  "local": {
+    "passed": 172,
+    "postgres_skipped": 7
+  },
+  "runtime_and_operations_dependency_audit": "no_known_vulnerabilities",
+  "private_production_results": "retained separately; not a production acceptance claim"
+}

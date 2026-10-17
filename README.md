@@ -2,7 +2,7 @@
 
 Portable, single-owner account monitoring and bounded research. **Observe only.** No brokerage write, preview, cancel, exercise, transfer or permission-changing tools are exposed or implemented. Paper proposals are separate, hypothetical, unfilled records.
 
-**2026-10-16 implementation status:** independent account reconciliation and quote polling, reusable MCP sessions, durable checkpoints, authenticated dashboard/MCP, and observe-only analysis infrastructure are implemented. The latest release passes 156 automated tests including real PostgreSQL recovery/restore tests. Deployment-specific account metadata, operational measurements and acceptance evidence are retained privately by the owner. See [market-data research](docs/MARKET-DATA-2026-10-16.md), [capabilities](docs/CAPABILITIES-2026-10-16.md) and [handoff](docs/HANDOFF.md). Test results do not establish a deployment's full-session reliability.
+**2026-10-16 implementation status:** independent account reconciliation and quote polling, reusable MCP sessions, durable checkpoints, authenticated dashboard/MCP, and observe-only analysis infrastructure are implemented. The latest release passes 179 automated tests including real PostgreSQL recovery/restore tests. Deployment-specific account metadata, operational measurements and acceptance evidence are retained privately by the owner. See [market-data research](docs/MARKET-DATA-2026-10-16.md), [capabilities](docs/CAPABILITIES-2026-10-16.md) and [handoff](docs/HANDOFF.md). Test results do not establish a deployment's full-session reliability.
 
 ## Components
 
@@ -25,7 +25,7 @@ npm ci --ignore-scripts
 npm run check:infra
 ```
 
-Without `TEST_DATABASE_URL`, five PostgreSQL tests explicitly skip. That is **not** an acceptance pass. Dedicated test databases must contain `test` in their names; the test fixture resets only that database. Run against a disposable database, never production. CI supplies one and exercises encrypted backup/restore.
+Without `TEST_DATABASE_URL`, seven PostgreSQL tests explicitly skip. That is **not** an acceptance pass. Dedicated test databases must contain `test` in their names; the test fixture resets only that database. Run against a disposable database, never production. CI supplies one and exercises encrypted backup/restore.
 
 For a complete local stack:
 

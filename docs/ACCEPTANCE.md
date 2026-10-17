@@ -17,6 +17,10 @@ Implementation tests pass; they do not establish any particular deployment's com
 
 ## Current tests
 
+Alpha release `6c1834f64e5a93c782704d62754e52df036a0155`: [179 passed, no skips in CI](https://github.com/michaelbellino/robinhood-observatory/actions/runs/38984854955). The exact backup container also completed an isolated synthetic restore with all 14 table hashes matching. Local: 172 passed, seven explicit PostgreSQL skips. Runtime and operations dependency audits and source scanning passed. See ALPHA-TESTS.md and BACKUP-JOB.md.
+
+Historical quote release:
+
 Commit `c902a4c31d40a6b4798428a6581eb1dec410a9ba`: [156 passed, no skips in CI](https://github.com/michaelbellino/robinhood-observatory/actions/runs/38974982322). Local: 149 passed, seven explicit PostgreSQL skips. The quote/session release also passed [154 tests](https://github.com/michaelbellino/robinhood-observatory/actions/runs/38973974274). Earlier evidence files are historical results, not the latest total.
 
 Quote tests cover independent commits, missing/malformed value preservation, stale source times despite recent receipt, pause during reads, durable throttling, protected quote endpoints, batch rotation, session reuse/404 recovery and leadership checks after pacing. CI also runs migrations, source scanning and the locked dependency audit.
@@ -25,4 +29,4 @@ Quote tests cover independent commits, missing/malformed value preservation, sta
 
 Measure broker HTTP duration, pacing, whole-cycle duration, quote completion gaps, source age and local receipt age separately. The shared application cap defaults to six MCP requests/minute; it is not a verified broker quota. The quote target is per batch, not a streaming or latency guarantee. More batches, pagination, outages and backoff extend cadence. See MARKET-DATA-2026-10-16.md.
 
-Retain full-session evidence only after the complete reference exchange session. The observer records cycle successes/failures and maximum gaps; options-specific hours and quote freshness are additional acceptance measures. Keep every fixture explicitly synthetic and separate from live data. Store operational evidence privately instead of committing account/deployment metadata to public source.
+Retain full-session evidence only after the complete reference exchange session. The observer records account and per-instrument quote sampling gaps, missing/stale quote samples and maximum observed quote age. Both account and quote criteria must pass. Five upcoming reference sessions can be scheduled idempotently; options-specific hours remain separate. Keep every fixture explicitly synthetic and separate from live data. Store operational evidence privately instead of committing account/deployment metadata to public source.
