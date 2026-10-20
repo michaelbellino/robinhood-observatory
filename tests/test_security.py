@@ -123,7 +123,7 @@ def test_mcp_discovery_scoped(client, read_headers):
     )
     assert response.status_code == 200, response.text
     tools = response.json()["result"]["tools"]
-    assert {t["name"] for t in tools} == {"monitor_status", "monitor_history"}
+    assert {t["name"] for t in tools} == {"monitor_status", "monitor_history", "trade_review_inbox"}
 
 
 def test_mcp_status_call(client, read_headers):

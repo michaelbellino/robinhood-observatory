@@ -143,6 +143,41 @@ class AICost(Base):
     state: Mapped[str] = mapped_column(String(30), default="reserved")
 
 
+class TradeIdea(Base):
+    __tablename__ = "trade_ideas"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    terms_hash: Mapped[str] = mapped_column(String(64))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    payload: Mapped[dict] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(40), default="awaiting_review")
+    preview: Mapped[dict | None] = mapped_column(JSON)
+    preview_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    preview_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    broker_order_id: Mapped[str | None] = mapped_column(String(36))
+
+
+class PushDevice(Base):
+    __tablename__ = "push_devices"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner: Mapped[str] = mapped_column(String(255))
+    subscription_cipher: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class PushDelivery(Base):
+    __tablename__ = "push_deliveries"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(64), index=True)
+    device_id: Mapped[str] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(30), default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
 class Work(Base):
     __tablename__ = "work_records"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)

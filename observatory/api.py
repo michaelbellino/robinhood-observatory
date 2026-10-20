@@ -4,6 +4,8 @@ import re
 import secrets
 import uuid
 import traceback
+import asyncio
+from contextlib import suppress
 from contextlib import asynccontextmanager, AsyncExitStack
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -27,7 +29,7 @@ from .security import Vault, bearer_principal, principal, require_control
 from .service import status, history, change_pause, start_observations
 from .market import market_status
 from .settings import Settings
-from . import rehearsal, assistant
+from . import rehearsal, assistant, trade_review, push
 
 STATIC = Path(__file__).parent / "static"
 
@@ -69,7 +71,7 @@ def create_app(settings=None, database=None):
     read = MCPServer(
         "Observatory reads", instructions="Stored read-only monitoring data. No brokerage tools."
     )
-    control = MCPServer("Observatory controls", instructions="Pause/resume monitoring only. Never trading.")
+    control = MCPServer("Observatory controls", instructions="Monitor controls and research proposals. No order submission tools.")
 
     @read.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
     async def monitor_status() -> dict:
@@ -78,6 +80,17 @@ def create_app(settings=None, database=None):
     @read.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
     async def monitor_history(kind: str = "events", limit: int = 20) -> list[dict]:
         return history(db, kind, limit)
+
+    @read.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
+    async def trade_review_inbox(limit: int = 20) -> dict:
+        return {"ideas": trade_review.list_ideas(db, limit), "execution_route": "manual_robinhood"}
+
+    @control.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                             idempotentHint=True, openWorldHint=False))
+    async def propose_trade_for_review(proposal: trade_review.NewIdea) -> dict:
+        """Save exact research terms and notify owner. Never an order or an execution approval."""
+        actor = require_control()
+        return trade_review.create(db, actor["sub"], proposal)
 
     @control.tool(
         annotations=ToolAnnotations(
@@ -107,7 +120,20 @@ def create_app(settings=None, database=None):
         async with AsyncExitStack() as stack:
             await stack.enter_async_context(read.session_manager.run())
             await stack.enter_async_context(control.session_manager.run())
-            yield
+            async def deliver_push():
+                while True:
+                    try:
+                        await push.dispatch(db, settings, vault)
+                    except Exception:
+                        logging.getLogger("observatory").warning("push_dispatch_unavailable")
+                    await asyncio.sleep(10)
+            delivery = asyncio.create_task(deliver_push())
+            try:
+                yield
+            finally:
+                delivery.cancel()
+                with suppress(asyncio.CancelledError):
+                    await delivery
 
     app = FastAPI(
         title="Robinhood Observatory", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan
@@ -215,6 +241,15 @@ def create_app(settings=None, database=None):
     async def workbench():
         return FileResponse(STATIC / "workbench.html")
 
+    @app.get("/trades")
+    async def trade_page():
+        return FileResponse(STATIC / "trades.html")
+
+    @app.get("/sw.js")
+    async def service_worker():
+        return FileResponse(STATIC / "sw.js", media_type="application/javascript",
+                            headers={"Service-Worker-Allowed": "/"})
+
     @app.get("/local-connect")
     async def local_connect_page(request: Request):
         # Only public helper coordinates, never tokens or OAuth codes, may survive login.
@@ -262,6 +297,58 @@ def create_app(settings=None, database=None):
     @app.get("/api/session")
     async def session_info(request: Request):
         return {"csrf": request.session.get("csrf"), "scope": principal.get()["scope"]}
+
+    def owner_session():
+        actor = require_control()
+        if actor["method"] != "session":
+            raise HTTPException(403, "Use the signed-in owner dashboard")
+        return actor
+
+    @app.get("/api/trades")
+    async def get_ideas():
+        return {"ideas": trade_review.list_ideas(db), "execution_route": "manual_robinhood",
+                "automatic_recommendations": "awaiting_methodology", "automatic_submission": False}
+
+    @app.post("/api/trades")
+    async def save_idea(body: trade_review.NewIdea):
+        actor = require_control()
+        return trade_review.create(db, actor["sub"], body)
+
+    @app.post("/api/trades/{ident}/preview")
+    async def preview_idea(ident: uuid.UUID):
+        actor = owner_session()
+        return await trade_review.preview(db, settings, vault, ident, actor["sub"])
+
+    @app.post("/api/trades/{ident}/decision")
+    async def decide_idea(ident: uuid.UUID, body: trade_review.Decision):
+        return trade_review.decide(db, owner_session()["sub"], ident, body)
+
+    @app.post("/api/trades/{ident}/link/{order_id}")
+    async def link_idea_order(ident: uuid.UUID, order_id: uuid.UUID):
+        return trade_review.link_order(db, owner_session()["sub"], ident, order_id)
+
+    @app.get("/api/notifications")
+    async def notification_status():
+        return push.delivery_status(db)
+
+    @app.post("/api/notifications/key")
+    async def push_key():
+        owner_session()
+        return {"public_key": push.application_key(db, vault)}
+
+    @app.post("/api/notifications/subscribe")
+    async def push_subscribe(body: push.Subscription):
+        return push.subscribe(db, vault, owner_session()["sub"], body)
+
+    @app.post("/api/notifications/disable/{ident}")
+    async def push_disable(ident: str):
+        return push.disable(db, owner_session()["sub"], ident)
+
+    @app.post("/api/notifications/test")
+    async def test_notification():
+        result = push.test_event(db, owner_session()["sub"])
+        await push.dispatch(db, settings, vault)
+        return result
 
     @app.get("/api/market")
     async def get_market():
