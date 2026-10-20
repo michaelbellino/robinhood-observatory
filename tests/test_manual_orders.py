@@ -14,21 +14,22 @@ from tests.test_trade_review import idea_body, quote
 from tests.test_rehearsal import owner_session
 
 
-def ready(db, settings, asset="equity"):
+def ready(db, settings, asset="equity", custom_terms=None):
     terms = {"asset": "equity", "symbol": "TEST", "side": "buy", "quantity": 1, "limit_price": "1"}
     if asset == "option":
         terms = {"asset": "option", "symbol": "TEST", "quantity": 1, "limit_price": "0.10",
                  "legs": [{"option_id": str(uuid4()), "expiration": "2030-01-18", "strike": "100", "right": "call",
                            "side": "buy", "position_effect": "open", "multiplier": 100}]}
+    terms = custom_terms or terms
     idea = review.create(db, settings.owner_subject, review.NewIdea.model_validate(idea_body(terms=terms)))
     t = review.Terms.model_validate(terms)
-    preview = t.broker_arguments("SYNTHETIC-ACCOUNT") | {"order_checks": {}}
+    preview = t.broker_arguments("SYNTHETIC-ACCOUNT") | {"order_checks": {}, "requested_terms": t.model_dump(mode="json")}
     if asset == "equity":
         preview["quote_data"] = quote()
     else:
-        preview.update(direction="debit", fees={"total_fee": "0.01"},
-                       option_quotes=[{"instrument_id": str(t.legs[0].option_id), "bid_price": "0.09",
-                                       "ask_price": "0.10", "updated_at": now().isoformat()}])
+        preview.update(direction=t.direction or ("debit" if t.legs[0].side == "buy" else "credit"), fees={"total_fee": "0.01"},
+                       option_quotes=[{"instrument_id": str(leg.option_id), "bid_price": "0.09",
+                                       "ask_price": "0.10", "updated_at": now().isoformat()} for leg in t.legs])
     with db.session() as s:
         row = s.get(TradeIdea, idea["id"])
         row.preview, row.preview_at, row.preview_generation = preview, now(), s.get(State, 1).generation
@@ -57,6 +58,11 @@ def transport(monkeypatch):
         initialized = False
         initializations = 0
         account_changes = {}
+        tradability_changes = {}
+        order_changes = {}
+        positions = []
+        extended_chain = True
+        chain_underlyings = []
         def factory(self, token, account, rpm):
             async def sleep(_):
                 pass
@@ -68,10 +74,12 @@ def transport(monkeypatch):
                 if method == "initialize":
                     self.initializations += 1
                 if method == "tools/list":
-                    names = ["get_accounts", "place_equity_order", "place_option_order"]
+                    names = ["get_accounts", "place_equity_order", "place_option_order", "get_equity_tradability",
+                             "get_option_chains", "get_equity_positions", "get_option_positions"]
                     # A strict placement schema proves review-only fields are removed.
                     keys = ["account_number", "quantity", "type", "market_hours", "time_in_force",
-                            "ref_id", "symbol", "side", "limit_price", "price", "legs", "direction"]
+                            "ref_id", "symbol", "side", "limit_price", "price", "legs", "direction", "stop_price",
+                            "dollar_amount", "symbols", "underlying_symbol", "nonzero", "option_ids", "cursor"]
                     result = {"tools": [{"name": name, "inputSchema": {"type": "object",
                               "properties": {key: {} for key in keys}, "additionalProperties": False}} for name in names]}
                 elif method == "tools/call":
@@ -81,7 +89,18 @@ def transport(monkeypatch):
                             self.before_send()
                         data = {"accounts": [{"account_number": account, "agentic_allowed": True,
                                 "state": "active", "deactivated": False, "permanently_deactivated": False,
-                                "option_level": "option_level_3", **self.account_changes}]}
+                                "option_level": "option_level_3", "type": "limited_margin",
+                                "brokerage_account_type": "individual", **self.account_changes}]}
+                    elif name == "get_equity_tradability":
+                        data = {"results": [{"symbol": args["symbols"][0], "state": "active", "tradeable": True,
+                                "fractional_tradability": "tradable", "all_day_tradability": "tradable",
+                                "account_type_tradabilities": [{"account_type": "individual", "account_type_tradability": "tradable"}],
+                                **self.tradability_changes}]}
+                    elif name == "get_option_chains":
+                        data = {"chains": [{"symbol": args["underlying_symbol"], "underlying_instruments": self.chain_underlyings,
+                                "extended_hours_state": "enabled" if self.extended_chain else "disabled"}]}
+                    elif name in {"get_equity_positions", "get_option_positions"}:
+                        data = {"positions": self.positions}
                     else:
                         assert name in {"place_equity_order", "place_option_order"}
                         self.sent.append((name, args))
@@ -92,14 +111,18 @@ def transport(monkeypatch):
                         if self.failure == "broker_error":
                             return httpx.Response(200, json={"id": body["id"], "result": {"isError": True}})
                         order = {**args, "id": str(uuid4()), "state": "queued", "created_at": now().isoformat(),
-                                 "trigger": "immediate", "cumulative_quantity": "0", "processed_quantity": "0"}
+                                 "trigger": "stop" if args["type"].startswith("stop_") else "immediate",
+                                 "type": args["type"].removeprefix("stop_"), "cumulative_quantity": "0", "processed_quantity": "0"}
                         if name == "place_equity_order":
-                            order["price"] = order.pop("limit_price")
+                            order["price"] = order.pop("limit_price", None)
+                            if "dollar_amount" in args:
+                                order["dollar_based_amount"] = {"amount": args["dollar_amount"], "currency_code": "USD"}
                         else:
-                            order.update(direction="debit", chain_symbol="TEST", trade_value_multiplier="100")
+                            order.update(direction=args.get("direction", "debit" if args["legs"][0]["side"] == "buy" else "credit"),
+                                         chain_symbol="TEST", trade_value_multiplier="100")
                         if self.failure == "wrong_terms":
                             order["quantity"] = "999"
-                        data = {"order": order}
+                        data = {"order": order | self.order_changes}
                     result = {"structuredContent": {"data": data}}
                 return httpx.Response(200, headers={"Mcp-Session-Id": "synthetic-session"},
                                       json={"id": body.get("id"), "result": result})

@@ -32,12 +32,13 @@ class SubmitOrder(StrictModel):
     terms_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     preview_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     acknowledge_real_order: Literal[True]
+    acknowledge_broker_alerts: bool = False
 
 
 class OwnerOrderBroker(PreviewBroker):
     """Requires an exact, single-use local grant. Never used by the collector."""
-    allowed = PreviewBroker.allowed | {"place_equity_order", "place_option_order"}
-    account_reads = PreviewBroker.account_reads | {"place_equity_order", "place_option_order"}
+    allowed = PreviewBroker.allowed | {"place_equity_order", "place_option_order", "get_equity_tradability"}
+    account_reads = PreviewBroker.account_reads | {"place_equity_order", "place_option_order", "get_equity_tradability"}
     client_name = "robinhood-observatory-owner-order-entry"
 
     def __init__(self, *args, **kwargs):
@@ -72,28 +73,23 @@ class OwnerOrderBroker(PreviewBroker):
         if name.startswith("place_") and (self.grant != (name, fingerprint(args)) or self.consumed):
             raise PermissionError("Exact owner submission grant required")
 
-def permitted_terms(terms):
-    if terms.asset == "option":
-        if len(terms.legs) != 1:
-            raise HTTPException(409, "Direct submission currently supports single-leg options; use Robinhood for spreads")
-        leg = terms.legs[0]
-        if (leg.side, leg.position_effect) not in {("buy", "open"), ("sell", "close")}:
-            raise HTTPException(409, "Direct options submission supports opening or closing long calls/puts only")
-
-
 def validate_review(row, body, generation):
     if (row.status != "awaiting_review" or row.broker_order_id or aware(row.expires_at) <= now()
             or row.terms_hash != body.terms_hash or fingerprint(row.payload) != body.terms_hash):
         raise HTTPException(409, "Order terms changed, expired, or were already handled")
     terms = review.Terms.model_validate(row.payload["terms"])
-    permitted_terms(terms)
     if (row.preview_generation != generation or not row.preview or not row.preview_at or aware(row.preview_at) < now()-timedelta(seconds=60)
             or fingerprint(row.preview) != body.preview_hash
-            or not review.fresh_preview(row.preview, terms.asset)):
+            or (terms.type in {"market", "stop_market"} and not review.fresh_preview(row.preview, terms.asset))):
         raise HTTPException(409, "Refresh the broker preview and review it again before submitting")
+    requested = row.preview.get("requested_terms")
+    if requested is not None and review.Terms.model_validate(requested) != terms:
+        raise HTTPException(409, "Preview session or order terms changed; refresh the preview")
+    if requested is None and (terms.type != "limit" or terms.market_hours != "regular_hours" or terms.time_in_force != "gfd"):
+        raise HTTPException(409, "Refresh the broker preview to bind the selected session and order type")
     review.validate_echo(terms, row.preview)
-    if row.preview["order_checks"]:
-        raise HTTPException(409, "Broker alerts must be resolved before direct submission; review them in Robinhood")
+    if row.preview["order_checks"] and not body.acknowledge_broker_alerts:
+        raise HTTPException(409, "Read and explicitly acknowledge the current broker alerts before submitting")
     return terms
 
 
@@ -154,22 +150,49 @@ async def eligibility(broker, account, terms):
         level = selected.get("user_option_level", selected.get("option_level"))
         if level not in {"option_level_2", "option_level_3"}:
             raise HTTPException(409, "Options approval is unavailable through this connection")
-    # Opening a long requires no additional inventory checks; the fresh broker
-    # preview gates funds. A sell may only close a verified long holding.
-    is_sell = terms.side == "sell" if terms.asset == "equity" else terms.legs[0].side == "sell"
-    if is_sell:
+        if len(terms.legs) > 1 and (level != "option_level_3" or selected.get("type") == "cash"
+                or selected.get("brokerage_account_type", "").startswith("ira")):
+            raise HTTPException(409, "The broker requires a non-cash, non-retirement Level 3 account for multi-leg orders")
+        if terms.market_hours != "regular_hours":
+            chains = (await broker.call("get_option_chains", {"underlying_symbol": terms.symbol})).get("chains") or []
+            matches = [x for x in chains if x and x.get("symbol") == terms.symbol]
+            if not matches or any(x.get("extended_hours_state") != "enabled"
+                    or "underlying_instruments" not in x or x["underlying_instruments"] for x in matches):
+                raise HTTPException(409, "The broker has not verified extended-hours eligibility for this index chain")
+    else:
+        data = await broker.call("get_equity_tradability", {"account_number": account, "symbols": [terms.symbol]})
+        instrument = next((x for x in data.get("results", []) if x.get("symbol") == terms.symbol), {})
+        entries = instrument.get("account_type_tradabilities") or []
+        access = next((x.get("account_type_tradability") for x in entries
+                       if x.get("account_type") == selected.get("brokerage_account_type")), None)
+        if (instrument.get("tradeable") is not True or instrument.get("state") != "active"
+                or access == "untradable" or (access == "position_closing_only" and terms.side != "sell")
+                or (entries and access is None)):
+            raise HTTPException(409, "This stock is not eligible for the selected account and side")
+        if terms.market_hours != "regular_hours" and instrument.get("all_day_tradability") != "tradable":
+            raise HTTPException(409, "The broker has not enabled this stock for the selected extended/overnight session")
+        fractional = terms.quantity is None or terms.quantity != terms.quantity.to_integral_value()
+        if fractional and instrument.get("fractional_tradability") != "tradable":
+            raise HTTPException(409, "The broker has not enabled fractional/dollar orders for this stock")
+    # Closing orders must reference actual holdings. Broker preview and placement
+    # retain authority over available quantities, collateral and opening strategies.
+    closing = [x for x in terms.legs if x.position_effect == "close"]
+    if terms.asset == "equity" and terms.side == "sell" or closing:
         args = {"account_number": account}
         if terms.asset == "option":
             args["nonzero"] = True
-            args["option_ids"] = str(terms.legs[0].option_id)
-            args["type"] = "long"
+            args["option_ids"] = ",".join(str(x.option_id) for x in closing)
         positions = await broker.pages(f"get_{terms.asset}_positions", "positions", args)
         if terms.asset == "equity":
             held = [x for x in positions if x.get("symbol") == terms.symbol]
+            if not held or sum(Decimal(str(x.get("quantity", "0"))) for x in held) < (terms.quantity or Decimal("0")):
+                raise HTTPException(409, "Insufficient verified long holdings for this sell order")
         else:
-            held = [x for x in positions if x.get("option_id") == str(terms.legs[0].option_id) and x.get("type") == "long"]
-        if not held or sum(Decimal(str(x.get("quantity", "0"))) for x in held) < terms.quantity:
-            raise HTTPException(409, "Insufficient verified long holdings for this sell order")
+            for leg in closing:
+                position_type = "long" if leg.side == "sell" else "short"
+                held = [x for x in positions if x.get("option_id") == str(leg.option_id) and x.get("type") == position_type]
+                if not held or sum(Decimal(str(x.get("quantity", "0"))) for x in held) < terms.quantity * leg.ratio_quantity:
+                    raise HTTPException(409, "Insufficient verified holdings for an options closing leg")
 
 
 def checked_order(terms, response):
@@ -179,15 +202,8 @@ def checked_order(terms, response):
     UUID(order["id"])
     if not isinstance(order.get("state"), str) or not order["state"]:
         raise MalformedData()
-    echoed = dict(order)
-    if terms.asset == "equity":
-        echoed["limit_price"] = order.get("price")
-    review.validate_echo(terms, echoed, require_checks=False)
-    if (order.get("trigger") != "immediate" or order.get("market_hours") != terms.market_hours
-            or order.get("time_in_force") != terms.time_in_force):
-        raise MalformedData()
-    if terms.asset == "option" and (order.get("chain_symbol") != terms.symbol
-            or Decimal(str(order.get("trade_value_multiplier"))) != terms.legs[0].multiplier):
+    review.validate_order_echo(terms, order)
+    if terms.asset == "option" and any(Decimal(str(order.get("trade_value_multiplier"))) != x.multiplier for x in terms.legs):
         raise MalformedData()
     return review.mask_accounts(order)
 

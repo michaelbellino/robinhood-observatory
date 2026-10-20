@@ -315,6 +315,10 @@ def create_app(settings=None, database=None):
         actor = require_control()
         return trade_review.create(db, actor["sub"], body)
 
+    @app.post("/api/trades/owner-ticket")
+    async def save_owner_ticket(body: trade_review.OwnerTicket):
+        return trade_review.create_owner_ticket(db, owner_session()["sub"], body)
+
     @app.post("/api/trades/{ident}/preview")
     async def preview_idea(ident: uuid.UUID):
         actor = owner_session()

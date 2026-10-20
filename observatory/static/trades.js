@@ -1,12 +1,13 @@
 "use strict";
 const el=id=>document.getElementById(id),node=(tag,text)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;return e;};
 let csrf="",signedIn=false,pendingProposal=null,submissions={};
+const pendingOwnerTickets = {};
 const stamp=v=>v?new Date(v).toLocaleString("en-US",{timeZone:"America/New_York",timeZoneName:"short"}):"Unavailable";
 function notice(text){el("notice").textContent=text;}
-async function api(path,body){const options={credentials:"same-origin",headers:{}};if(body!==undefined){options.method="POST";options.headers={"Content-Type":"application/json","X-CSRF-Token":csrf};options.body=JSON.stringify(body);}const r=await fetch(path,options);const data=await r.json();if(!r.ok)throw new Error(r.status===401?"Sign in to continue.":typeof data.detail==="string"?data.detail:"Check the exact proposal fields and try again.");return data;}
+async function api(path,body){const options={credentials:"same-origin",headers:{}};if(body!==undefined){options.method="POST";options.headers={"Content-Type":"application/json","X-CSRF-Token":csrf};options.body=JSON.stringify(body);}const r=await fetch(path,options);const data=await r.json();if(!r.ok)throw new Error(r.status===401?"Sign in to continue.":typeof data.detail==="string"?data.detail:Array.isArray(data.detail)?data.detail.map(x=>`${x.loc.slice(1).join(".")}: ${x.msg}`).join("; "):"Check the exact order fields and try again.");return data;}
 function action(label,handler){const button=node("button",label);button.onclick=async()=>{button.disabled=true;try{await handler();}catch(e){notice(e.message);}finally{button.disabled=false;}};return button;}
 function render(idea){const card=node("article"),p=idea.payload,t=p.terms,submission=submissions[idea.id];card.className="ticket";card.id=idea.id;
- card.append(node("h3",`${t.symbol} · ${t.asset} · ${t.quantity} ${t.asset==="option"?"strategies/contracts":"shares"}`),node("strong",idea.status.replaceAll("_"," ")),node("p",`Review deadline: ${stamp(idea.expires_at)}`),node("p",p.rationale));
+ card.append(node("h3",`${t.symbol} · ${t.asset} · ${t.dollar_amount ? "$"+t.dollar_amount : t.quantity+" "+(t.asset==="option"?"strategies/contracts":"shares")}`),node("strong",idea.status.replaceAll("_"," ")),node("p",`Review deadline: ${stamp(idea.expires_at)}`),node("p",p.rationale));
  const risks=node("p",p.risks);risks.className="risk";card.append(risks,node("p",`Methodology: ${p.methodology}`),node("p",`Sources: ${p.sources.join(" · ")}`));
  card.append(OwnerOrders.summary(t));
  if(idea.preview){card.append(node("h4",`Broker preview · ${stamp(idea.preview_at)}`));if(idea.preview.market_data_disclosure){const disclosure=node("p",idea.preview.market_data_disclosure);disclosure.className="broker-disclosure";card.append(disclosure);}card.append(node("p","Review all broker alerts, quotes, fees and collateral below. Collateral describes the change against your existing positions and working orders."),node("pre",JSON.stringify(idea.preview,null,2)));}
@@ -31,4 +32,32 @@ el("enable-push").onclick=async()=>{try{if(!("serviceWorker" in navigator)||!("P
 el("test-push").onclick=async()=>{try{const r=await api("/api/notifications/test",{});notice(`Test queued (${r.event_id}). Check your phone, then refresh delivery status.`);await pushStatus();}catch(e){notice(e.message);}};
 el("refresh").onclick=()=>load().catch(e=>notice(e.message));
 el("proposal-form").onsubmit=async event=>{event.preventDefault();try{const text=el("proposal-json").value;if(pendingProposal?.text!==text)pendingProposal={text,body:{...JSON.parse(text),request_id:crypto.randomUUID()}};await api("/api/trades",pendingProposal.body);pendingProposal=null;await load();notice("Proposal saved for review. No order submitted.");}catch(e){notice(e.message);}};
-(async()=>{try{const session=await api("/api/session");csrf=session.csrf||"";signedIn=!!csrf&&session.scope==="control";el("signin").hidden=signedIn;el("enable-push").disabled=el("save-proposal").disabled=!signedIn;await load();notice("Review inbox ready. Only your explicit Submit order action sends an order.");}catch(e){notice(e.message);}})();
+function stockControls() {
+ const type=el("stock-type").value, limit=type==="limit"||type==="stop_limit", stop=type.startsWith("stop_");
+ el("stock-limit-label").hidden=!limit;el("stock-limit").required=limit;
+ el("stock-stop-label").hidden=!stop;el("stock-stop").required=stop;
+ for(const option of el("stock-session").options)option.disabled=type!=="limit"&&option.value!=="regular_hours";
+ if(type!=="limit")el("stock-session").value="regular_hours";
+ el("stock-help").textContent=stop?"Stops operate during regular hours only. Stop-market execution is not price-capped; a stop-limit may not fill.":type==="market"?"Market execution is not price-capped. Fractional shares and dollar amounts are supported only during regular hours through this connection.":"Whole shares only for limit orders through this connection. Extended and overnight eligibility is checked with Robinhood; a limit order may remain unfilled.";
+}
+async function saveOwnerTicket(key,terms) {
+ const text=JSON.stringify(terms);
+ if(pendingOwnerTickets[key]?.text!==text)pendingOwnerTickets[key]={text,body:{request_id:crypto.randomUUID(),terms}};
+ const item=await api("/api/trades/owner-ticket",pendingOwnerTickets[key].body);
+ delete pendingOwnerTickets[key]; await load();
+ notice("Order saved. Refresh its broker preview, review the exact terms, then submit only if you choose.");
+ el(item.id)?.scrollIntoView({behavior:"smooth",block:"start"});
+}
+el("stock-type").onchange=stockControls;stockControls();
+el("stock-form").onsubmit=async event=>{
+ event.preventDefault();el("save-stock").disabled=true;
+ try {
+  const type=el("stock-type").value, terms={asset:"equity",symbol:el("stock-symbol").value.trim().toUpperCase(),side:el("stock-side").value,type,market_hours:el("stock-session").value,time_in_force:el("stock-tif").value};
+  terms[el("stock-size-mode").value]=el("stock-size").value;
+  if(type==="limit"||type==="stop_limit")terms.limit_price=el("stock-limit").value;
+  if(type.startsWith("stop_"))terms.stop_price=el("stock-stop").value;
+  await saveOwnerTicket("stock",terms);
+ } catch(e){notice(e.message);}finally{el("save-stock").disabled=!signedIn;}
+};
+el("advanced-form").onsubmit=async event=>{event.preventDefault();el("save-advanced").disabled=true;try{await saveOwnerTicket("advanced",JSON.parse(el("advanced-json").value));}catch(e){notice(e.message);}finally{el("save-advanced").disabled=!signedIn;}};
+(async()=>{try{const session=await api("/api/session");csrf=session.csrf||"";signedIn=!!csrf&&session.scope==="control";el("signin").hidden=signedIn;el("enable-push").disabled=el("save-proposal").disabled=el("save-stock").disabled=el("save-advanced").disabled=!signedIn;await load();notice("Review inbox ready. Only your explicit Submit order action sends an order.");}catch(e){notice(e.message);}})();
