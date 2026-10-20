@@ -1,7 +1,7 @@
 [project]
 name = "robinhood-observatory"
 version = "0.1.0"
-description = "Single-owner, read-only brokerage observation and research"
+description = "Single-owner brokerage observation, research, and direct owner order entry"
 requires-python = ">=3.12,<3.13"
 license = "MIT"
 dependencies = [
