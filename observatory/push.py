@@ -201,6 +201,13 @@ async def dispatch(db, settings, vault, sender=send):
                 ttl = max(1, min(ttl, int((aware(idea.expires_at)-now()).total_seconds())))
                 path += "#" + idea.id
                 title, message = "Trade idea ready", "Review the proposal and current broker preview before deciding."
+            elif event.kind == "trade_order_status":
+                idea = s.get(TradeIdea, event.payload.get("idea_id"))
+                if not idea:
+                    row.state = "expired"
+                    continue
+                path += "#" + idea.id
+                title, message = "Order status updated", "Open Observatory to review the broker's reported status."
             elif event.kind == "notification_test":
                 title, message = "Observatory notification test", "Phone notifications are working. No order was created or submitted."
             payload = {"id": event.id, "title": title, "body": message, "url": path,
@@ -228,3 +235,4 @@ async def dispatch(db, settings, vault, sender=send):
                 row.next_attempt = now()+timedelta(seconds=30 * 2**row.attempts)
             else:
                 row.state = "failed"
+
