@@ -83,6 +83,8 @@ def retry_delay(value, attempt=0, at=None):
 
 
 class ReadOnlyBroker:
+    allowed = ALLOWED
+    account_reads = ACCOUNT_READS
     def __init__(self, token, account, rpm=6, client=None, sleep=asyncio.sleep):
         self.token, self.account, self.rpm = token, account, rpm
         self.rhs_account = None
@@ -205,7 +207,7 @@ class ReadOnlyBroker:
         for _ in range(20):
             result = await self.rpc("tools/list", {"cursor": cursor} if cursor else {})
             for tool in result.get("tools", []):
-                if tool["name"] in ALLOWED:
+                if tool["name"] in self.allowed:
                     self.schemas[tool["name"]] = tool["inputSchema"]
             cursor = result.get("nextCursor")
             if not cursor:
@@ -216,12 +218,12 @@ class ReadOnlyBroker:
         raise MalformedData()
 
     def validate_call(self, name, args):
-        if name not in ALLOWED or name not in self.schemas:
+        if name not in self.allowed or name not in self.schemas:
             raise PermissionError("Broker tool is absent or not allowlisted")
         if name in {"get_crypto_positions", "get_crypto_orders"}:
             if not self.rhs_account or args.get("rhs_account_number") != self.rhs_account:
                 raise PermissionError("Cross-account crypto read denied")
-        elif name in ACCOUNT_READS and args.get("account_number") != self.account:
+        elif name in self.account_reads and args.get("account_number") != self.account:
             raise PermissionError("Cross-account read denied")
         if name in {"get_alerts", "get_alert_log"}:
             # These may be user-wide. No silent aggregation of other accounts.
@@ -269,3 +271,9 @@ class ReadOnlyBroker:
             seen.add(cursor)
             params["cursor"] = cursor
         raise MalformedData()
+
+
+class PreviewBroker(ReadOnlyBroker):
+    """Explicit previews only. Never order placement, replacement, or cancellation."""
+    allowed = ALLOWED | {"review_equity_order", "review_option_order"}
+    account_reads = ACCOUNT_READS | {"review_equity_order", "review_option_order"}

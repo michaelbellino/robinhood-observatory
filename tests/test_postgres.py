@@ -172,3 +172,26 @@ def test_paper_idempotency_survives_concurrent_retry(pg):
     assert sorted(result["replayed"] for result in results) == [False, True]
     with pg.session() as s:
         assert s.scalar(select(func.count()).select_from(Rehearsal)) == 1
+
+
+def test_concurrent_push_dispatch_claims_once(pg, settings, vault):
+    import asyncio
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from types import SimpleNamespace
+    from sqlalchemy import select, func
+    from observatory import push
+    from observatory.db import PushDelivery
+    from tests.test_push import ready
+    ready(pg, settings, vault)
+    calls = []
+    lock = threading.Lock()
+    def send(*args):
+        with lock:
+            calls.append(True)
+        return SimpleNamespace(status_code=201)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: asyncio.run(push.dispatch(pg, settings, vault, send)), range(2)))
+    assert results == [None, None] and len(calls) == 1
+    with pg.session() as s:
+        assert s.scalar(select(func.count()).select_from(PushDelivery)) == 1

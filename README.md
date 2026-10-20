@@ -42,3 +42,7 @@ Read [setup](docs/SETUP.md), [deployment/rollback](docs/DEPLOYMENT.md), [recover
 Automatic production deployment from ordinary pushes is disabled by design. The release workflow is manual, takes an exact reviewed commit, and requires the `railway-production` protected environment. A database migration/restore and live-auth gate must pass before the first release is promoted.
 
 MIT license covers this application, not Robinhood brokerage/market-data rights, Railway service terms or OpenAI service access. It is not affiliated with Robinhood or OpenAI. Proprietary external dependencies and licensing limits are listed in [capabilities](docs/CAPABILITIES-2026-10-16.md).
+
+## Trade review and phone notifications
+
+`/trades` provides a real-instrument research inbox, broker previews, encrypted phone Web Push, and matching observed-order tracking after **manual submission in Robinhood**. Automatic trade selection, one-click brokerage submission and ChatGPT event delivery are not enabled. See [workflow, setup, limitations and sources](docs/NOTIFICATIONS-AND-TRADE-REVIEW.md). The synthetic workbench remains separate.
