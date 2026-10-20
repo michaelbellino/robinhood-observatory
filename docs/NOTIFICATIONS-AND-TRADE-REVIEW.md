@@ -6,9 +6,26 @@
 
 The pipeline is proposal → durable notification → owner review → explicit broker preview → owner clicks **Submit order** → broker acknowledgment → observed order status. The final button sends a real order through Robinhood’s official Trading MCP using independently authorized hosted credentials. A chat reply, saved idea, checkbox by itself, notification, or scheduled task cannot submit an order. The older manual Robinhood handoff remains available as a fallback. This does not create a native Robinhood pending-approval ticket or change Robinhood’s own approval settings.
 
-The worker uses the unchanged `ReadOnlyBroker`; `PreviewBroker` still permits only reads and previews. The dashboard uses a separate `OwnerOrderBroker`, requiring an exact one-use server-side submission grant for `place_equity_order` or `place_option_order`. Bearer tokens, including the agent’s control token, cannot use the submission route. No cancel, replace, exercise, transfer, or generic proxy route is exposed. Exact preview echoes are checked; options identities and multipliers are verified against instruments. Broker disclosures/alerts remain visible. Source quote staleness and preview expiry prevent recording a proceed decision; submission rechecks the reviewed terms and quote freshness immediately before network transmission, after rate-limit waits.
+The worker uses the unchanged `ReadOnlyBroker`; `PreviewBroker` still permits only reads and previews. The dashboard uses a separate `OwnerOrderBroker`, requiring an exact one-use server-side submission grant for `place_equity_order` or `place_option_order`. Bearer tokens, including the agent’s control token, cannot use the submission route. No cancel, replace, exercise, transfer, or generic proxy route is exposed. Exact preview echoes are checked; options identities and multipliers are verified against instruments. Broker disclosures/alerts remain visible. Every submission requires a broker preview fetched within 60 seconds and rechecks its account generation, exact terms, and hash immediately before transmission, after rate-limit waits. Market and stop-market orders additionally require fresh, valid bid/ask data. Limit and stop-limit orders retain their explicit price bounds even when the last quote update is older; the broker disclosure and timestamps remain visible and are never relabeled as current.
 
-Supported review forms: whole-share equity limit orders, and one-to-four-leg options limit orders, regular hours, good for day. Direct submission supports whole-share stock buys/sells and single-leg long calls/puts (buy to open or sell to close); sales require verified long holdings. Spreads and opening short options use the manual Robinhood fallback. All broker alerts block direct submission until resolved. Account access and options eligibility are rechecked through the hosted connection. This is a narrower implementation than every broker-advertised order type. Unsupported forms fail validation. Proposed limits are not account risk caps. No strategy has been approved or evaluated by these workflow tests.
+## Owner order controls
+
+The stock form accepts a ticker, side, share quantity or dollar amount, order type, session and duration. Saving a ticket is not submission. Owner tickets do not require research rationale, methodology or citations; research proposals keep those fields. The arbitrary 30-proposals-per-day cap is removed. Owner tickets remain reviewable for 24 hours, but every submission still requires the separate fresh broker preview. Infrastructure and API spending caps are unchanged.
+
+| Asset / order | Supported through owner submission | Broker constraints retained |
+| --- | --- | --- |
+| Stock limit | Regular, extended, or 24 Hour Market; GFD/GTC | Whole shares; broker verifies session and account eligibility |
+| Stock market | Regular hours; shares, fractional shares, or dollars | Fractional eligibility checked; price is not capped |
+| Stock stop-limit / stop-market | Regular hours; GFD/GTC | Whole shares; exact trigger; stops never operate after hours |
+| Single-leg options | Limit, market, stop-limit, stop-market; opening/closing supported | Exact contract identity and multiplier; options approval; stop-market is sell-to-close only; market/stop-market are regular-hours GFD |
+| Multi-leg options | One-to-four-leg limit strategies with explicit net debit/credit | Level 3; broker disallows cash/retirement accounts; every closing leg must match holdings |
+| Eligible index options | Limit orders in regular+curb or regular+curb+overnight sessions | Index identity and broker-enabled extended chain required |
+
+Options and advanced terms currently use the owner terms JSON editor; stock entry has normal form controls. Options session values are `regular_hours`, `regular_curb_hours`, and `regular_curb_overnight_hours`. Stock session values are `regular_hours`, `extended_hours`, and `all_day_hours`. The current broker metadata maps `all_day_hours` to its 24 Hour Market and uses `all_day_tradability` for eligibility. This is distinct from any future 24/7 weekend product. Duration values are `gfd` and `gtc`.
+
+Broker alerts are displayed verbatim and require a second explicit acknowledgment bound to the exact preview. Acknowledgment never overrides broker funds, collateral, trading-hours or account checks: the broker may still reject the order. Returned order type+trigger, price/stop, quantity or dollar amount, session, duration and legs must match; a mismatched response is treated as an unknown outcome, never resent.
+
+Retained boundaries: stock sells must have verified long holdings; options closing legs must have the appropriate long/short holdings. Opening options strategies remain subject to broker collateral and approval checks. Unknown submission outcomes block duplicate financial exposure. Authentication, owner-session-only submission, CSRF, account binding, request pacing, encrypted credentials and infrastructure budgets remain in force. Crypto entry is not implemented. Trailing stops and bracket/OCO submission are not exposed by this broker connection; cancellation/replacement remains in Robinhood. No strategy or live execution is established by mock tests.
 
 The initial acknowledgment comes from the broker submission response and includes the actual order ID/state. Subsequent observed status comes from the independently collected selected-account snapshot. For the manual fallback the owner supplies an actual order UUID; the application checks asset, quantity, price, direction/legs, session, time in force, and creation time. A user claim or review decision never counts as a fill. Existing incomplete grouped-order warnings remain material; API availability is not proof of complete account coverage.
 
@@ -56,7 +73,7 @@ Robinhood's public help and connected tool metadata differ on multi-leg support.
 
 ## Remaining gates
 
-- Enroll the user's actual device and confirm a push arrived; provider acknowledgment alone is insufficient.
+- Phone Web Push receipt was confirmed by the owner on October 20, 2026; that is separate from trade execution.
 - Define the trading methodology and mandate before autonomous proposal generation.
 - Configure a separately approved API model/budget if hosted model reasoning is wanted. Existing API spend remains disabled.
 - Broker preview calls have mock transport coverage; verify an owner-selected live proposal without submitting an order.

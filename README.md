@@ -1,6 +1,6 @@
 # Robinhood Observatory
 
-Portable, single-owner account monitoring, research, and **user-operated order entry**. The worker and chat tools remain observe/propose only. The authenticated `/trades` dashboard supports broker previews and an explicit owner Submit order button for stock limits and single-leg long options. No automatic order execution. Paper proposals remain separate, hypothetical, unfilled records.
+Portable, single-owner account monitoring, research, and **user-operated order entry**. The worker and chat tools remain observe/propose only. The authenticated `/trades` dashboard supports broker previews and an explicit owner Submit order button for supported stock order types/sessions and single- or multi-leg options on eligible accounts. No automatic order execution. Paper proposals remain separate, hypothetical, unfilled records.
 
 **2026-10-16 implementation status:** independent account reconciliation and quote polling, reusable MCP sessions, durable checkpoints, authenticated dashboard/MCP, and observe-only analysis infrastructure are implemented. The latest release passes 181 automated tests including real PostgreSQL recovery/restore tests. Deployment-specific account metadata, operational measurements and acceptance evidence are retained privately by the owner. See [market-data research](docs/MARKET-DATA-2026-10-16.md), [capabilities](docs/CAPABILITIES-2026-10-16.md) and [handoff](docs/HANDOFF.md). Test results do not establish a deployment's full-session reliability.
 

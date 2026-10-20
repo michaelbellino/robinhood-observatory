@@ -72,17 +72,12 @@ def test_idempotency_dedup_expiry_and_caps(configured, settings):
     assert review.list_ideas(configured)[0]["status"] == "expired"
 
 
-@pytest.mark.parametrize("failure", ["quote", "preview", "terms", "expiry", "changed_preview"])
+@pytest.mark.parametrize("failure", ["preview", "terms", "expiry", "changed_preview"])
 async def test_review_rejects_staleness_and_changes(configured, settings, vault, failure):
     idea = await preview_fixture(configured, settings, vault)
     request = decision(idea)
     with configured.session() as s:
         row = s.get(TradeIdea, idea["id"])
-        if failure == "quote":
-            result = dict(row.preview)
-            result["quote_data"] = {**result["quote_data"], "venue_bid_time": (now()-timedelta(minutes=10)).isoformat()}
-            row.preview = result
-            request.preview_hash = review.fingerprint(result)
         if failure == "preview":
             row.preview_at = now()-timedelta(minutes=2)
         if failure == "terms":
