@@ -6,6 +6,7 @@ Portable, single-owner account monitoring and bounded research. **Observe only.*
 
 ## Components
 
+- **Paper workbench at `/workbench`:** a no-model command assistant for stored status/quotes and isolated stock/option review rehearsals. Immutable terms, five-minute expiry, duplicate protection and database-enforced paper caps. No real-money execution. See [workbench testing](docs/PAPER-WORKBENCH.md).
 - FastAPI + responsive static dashboard; GitHub OAuth (OIDC alternative), explicit immutable single-owner subject, secure session/CSRF controls. Separate bearer credentials for MCP reads and monitoring controls.
 - Persistent Python worker; one PostgreSQL advisory-lock leader, durable work records, checkpoints, pause state, idempotent events and shared request pacing. No Redis.
 - PostgreSQL application state with Alembic migrations. Encrypted broker credentials, including refresh tokens, survive restarts. Secrets and financial data stay out of the repository.

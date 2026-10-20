@@ -132,3 +132,43 @@ def test_market_checkpoint_survives_connection_restart(pg):
     with other.session() as s:
         row = s.get(MarketState, 1)
         assert row.cursor == 2 and row.payload["synthetic"] and row.last_success
+
+
+def test_paper_budget_serializes_concurrent_requests(pg):
+    from concurrent.futures import ThreadPoolExecutor
+    from uuid import uuid4
+    from fastapi import HTTPException
+    from sqlalchemy import select, func
+    from observatory.db import Rehearsal
+    from observatory import rehearsal
+
+    def create(_):
+        try:
+            rehearsal.create(pg, "synthetic-owner", rehearsal.CreateRehearsal(
+                request_id=uuid4(), terms=rehearsal.TestTerms(
+                    asset="equity", symbol="TEST", quantity="1", limit_price="5")))
+            return 200
+        except HTTPException as exc:
+            return exc.status_code
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results = list(pool.map(create, range(6)))
+    assert results.count(200) == 4 and results.count(429) == 2
+    with pg.session() as s:
+        assert s.scalar(select(func.sum(Rehearsal.reserved_usd))) == 20
+
+
+def test_paper_idempotency_survives_concurrent_retry(pg):
+    from concurrent.futures import ThreadPoolExecutor
+    from uuid import uuid4
+    from sqlalchemy import select, func
+    from observatory.db import Rehearsal
+    from observatory import rehearsal
+
+    request = rehearsal.CreateRehearsal(request_id=uuid4(), terms=rehearsal.fixture("option"))
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: rehearsal.create(pg, "synthetic-owner", request), range(2)))
+    assert results[0]["id"] == results[1]["id"]
+    assert sorted(result["replayed"] for result in results) == [False, True]
+    with pg.session() as s:
+        assert s.scalar(select(func.count()).select_from(Rehearsal)) == 1
