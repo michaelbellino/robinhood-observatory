@@ -62,6 +62,7 @@ def transport(monkeypatch):
         order_changes = {}
         positions = []
         extended_chain = True
+        chain_underlyings = []
         def factory(self, token, account, rpm):
             async def sleep(_):
                 pass
@@ -96,7 +97,7 @@ def transport(monkeypatch):
                                 "account_type_tradabilities": [{"account_type": "individual", "account_type_tradability": "tradable"}],
                                 **self.tradability_changes}]}
                     elif name == "get_option_chains":
-                        data = {"chains": [{"symbol": args["underlying_symbol"], "underlying_instruments": [],
+                        data = {"chains": [{"symbol": args["underlying_symbol"], "underlying_instruments": self.chain_underlyings,
                                 "extended_hours_state": "enabled" if self.extended_chain else "disabled"}]}
                     elif name in {"get_equity_positions", "get_option_positions"}:
                         data = {"positions": self.positions}

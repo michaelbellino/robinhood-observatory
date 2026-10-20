@@ -122,10 +122,12 @@ async def test_alert_ack_is_bound_to_exact_preview(configured, settings, vault, 
 
 
 @pytest.mark.parametrize("hours", ["regular_curb_hours", "regular_curb_overnight_hours"])
-async def test_index_sessions_verified_with_broker(configured, settings, vault, transport, hours):
+@pytest.mark.parametrize("underlyings", [None, []])
+async def test_index_sessions_verified_with_broker(configured, settings, vault, transport, hours, underlyings):
     terms = options(underlying_type="index", market_hours=hours, time_in_force="gtc")
     idea, body = ready(configured, settings, "option", terms)
     transport.extended_chain = False
+    transport.chain_underlyings = underlyings
     blocked = await manual.submit(configured, settings, vault, idea["id"], settings.owner_subject, body, transport.factory)
     assert blocked["state"] == "not_sent" and not transport.sent
     transport.extended_chain = True

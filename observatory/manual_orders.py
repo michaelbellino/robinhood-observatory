@@ -156,7 +156,8 @@ async def eligibility(broker, account, terms):
         if terms.market_hours != "regular_hours":
             chains = (await broker.call("get_option_chains", {"underlying_symbol": terms.symbol})).get("chains") or []
             matches = [x for x in chains if x and x.get("symbol") == terms.symbol]
-            if not matches or any(x.get("extended_hours_state") != "enabled" or x.get("underlying_instruments") != [] for x in matches):
+            if not matches or any(x.get("extended_hours_state") != "enabled"
+                    or "underlying_instruments" not in x or x["underlying_instruments"] for x in matches):
                 raise HTTPException(409, "The broker has not verified extended-hours eligibility for this index chain")
     else:
         data = await broker.call("get_equity_tradability", {"account_number": account, "symbols": [terms.symbol]})
