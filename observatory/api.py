@@ -27,6 +27,7 @@ from .security import Vault, bearer_principal, principal, require_control
 from .service import status, history, change_pause, start_observations
 from .market import market_status
 from .settings import Settings
+from . import rehearsal, assistant
 
 STATIC = Path(__file__).parent / "static"
 
@@ -210,6 +211,10 @@ def create_app(settings=None, database=None):
     async def dashboard():
         return FileResponse(STATIC / "index.html")
 
+    @app.get("/workbench")
+    async def workbench():
+        return FileResponse(STATIC / "workbench.html")
+
     @app.get("/local-connect")
     async def local_connect_page(request: Request):
         # Only public helper coordinates, never tokens or OAuth codes, may survive login.
@@ -265,6 +270,26 @@ def create_app(settings=None, database=None):
     @app.get("/api/status")
     async def get_status():
         return status(db)
+
+    @app.post("/api/assistant")
+    async def assistant_message(message: assistant.Message):
+        return assistant.respond(db, message)
+
+    @app.get("/api/rehearsals")
+    async def get_rehearsals():
+        return {"limits": rehearsal.limits(), "tickets": rehearsal.recent(db)}
+
+    @app.post("/api/rehearsals")
+    async def create_rehearsal(body: rehearsal.CreateRehearsal):
+        actor = require_control()
+        return rehearsal.create(db, actor["sub"], body)
+
+    @app.post("/api/rehearsals/{ident}/review")
+    async def review_rehearsal(ident: uuid.UUID, body: rehearsal.ReviewRehearsal):
+        actor = require_control()
+        if actor["method"] != "session":
+            raise HTTPException(403, "Paper review requires the signed-in owner dashboard")
+        return rehearsal.review(db, actor["sub"], ident, body)
 
     @app.get("/api/history/{kind}")
     async def get_history(kind: str, limit: int = 50):

@@ -121,6 +121,20 @@ class PaperProposal(Base):
     status: Mapped[str] = mapped_column(String(30), default="paper_unfilled")
 
 
+class Rehearsal(Base):
+    """Isolated workflow tests. Never brokerage orders, approvals, or simulated fills."""
+    __tablename__ = "review_rehearsals"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    actor: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    terms_hash: Mapped[str] = mapped_column(String(64))
+    payload: Mapped[dict] = mapped_column(JSON)
+    reserved_usd: Mapped[float] = mapped_column(Numeric(18, 8))
+    status: Mapped[str] = mapped_column(String(30), default="awaiting_paper_review")
+
+
 class AICost(Base):
     __tablename__ = "ai_cost_reservations"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
