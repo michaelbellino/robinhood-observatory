@@ -34,6 +34,21 @@ def test_single_leader_and_release(pg):
         assert recovered is not None
 
 
+def test_owner_submission_reservation_serializes(pg, settings):
+    from concurrent.futures import ThreadPoolExecutor
+    from observatory import manual_orders
+    from tests.test_manual_orders import ready
+    with pg.session() as s:
+        state = s.get(State, 1)
+        state.account_verified, state.paused = True, False
+        state.account_cipher = "synthetic-test-only"
+    idea, body = ready(pg, settings)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: manual_orders.reserve(pg, settings.owner_subject, idea["id"], body), range(2)))
+    assert sum(reservation is not None for reservation, _ in results) == 1
+    assert sum(previous is not None and previous["state"] == "preparing" for _, previous in results) == 1
+
+
 def test_leader_crash_recovery(pg):
     with pg.leader() as conn:
         assert conn is not None

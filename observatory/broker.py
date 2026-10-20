@@ -85,6 +85,7 @@ def retry_delay(value, attempt=0, at=None):
 class ReadOnlyBroker:
     allowed = ALLOWED
     account_reads = ACCOUNT_READS
+    client_name = "robinhood-observatory-read-only"
     def __init__(self, token, account, rpm=6, client=None, sleep=asyncio.sleep):
         self.token, self.account, self.rpm = token, account, rpm
         self.rhs_account = None
@@ -198,7 +199,7 @@ class ReadOnlyBroker:
             {
                 "protocolVersion": "2025-11-25",
                 "capabilities": {},
-                "clientInfo": {"name": "robinhood-observatory-read-only", "version": "0.1.0"},
+                "clientInfo": {"name": self.client_name, "version": "0.1.0"},
             },
         )
         await self.rpc("notifications/initialized", notification=True)

@@ -155,7 +155,23 @@ class TradeIdea(Base):
     preview: Mapped[dict | None] = mapped_column(JSON)
     preview_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     preview_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    preview_generation: Mapped[int | None] = mapped_column(Integer)
     broker_order_id: Mapped[str | None] = mapped_column(String(36))
+
+
+class OrderSubmission(Base):
+    """One durable user-operated submission per idea; never an executable queue."""
+    __tablename__ = "order_submissions"
+    idea_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    ref_id: Mapped[str] = mapped_column(String(36), unique=True)
+    actor: Mapped[str] = mapped_column(String(255))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    generation: Mapped[int] = mapped_column(Integer)
+    state: Mapped[str] = mapped_column(String(30))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    order: Mapped[dict | None] = mapped_column(JSON)
+    message: Mapped[str | None] = mapped_column(String(400))
 
 
 class PushDevice(Base):

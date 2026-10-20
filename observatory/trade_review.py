@@ -1,4 +1,4 @@
-"""Real-instrument research inbox and broker previews; final submission is in Robinhood.
+"""Real-instrument research inbox and broker previews; never submits an order.
 
 Ideas are not brokerage orders. Review decisions never become execution credentials.
 The producer (human or research agent) must supply its methodology and exact terms.
@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 from fastapi import HTTPException
 from pydantic import Field, model_validator
 from sqlalchemy import select, func
-from .db import TradeIdea, State, Snapshot, Event, Audit, aware, now
+from .db import TradeIdea, OrderSubmission, State, Snapshot, Event, Audit, aware, now
 from .domain import StrictModel
 from .rehearsal import fingerprint
 from .broker import PreviewBroker, MalformedData
@@ -103,7 +103,9 @@ def serialize(row, snapshot=None):
             "status": status, "terms_hash": row.terms_hash, "payload": row.payload,
             "preview": row.preview, "preview_at": aware(row.preview_at),
             "preview_hash": fingerprint(row.preview) if row.preview else None,
-            "sent_to_broker": False, "execution_route": "manual_robinhood", "broker_order": None}
+            "sent_to_broker": (None if row.status in {"submission_in_progress", "submission_unknown"}
+                               else row.status == "submitted_by_owner"),
+            "execution_route": "owner_dashboard", "broker_order": None}
     if row.broker_order_id and snapshot:
         orders = snapshot.payload.get(f'{row.payload["terms"]["asset"]}_orders', [])
         order = next((x for x in orders if x.get("id") == row.broker_order_id), None)
@@ -211,19 +213,23 @@ def fresh_preview(result, asset):
 async def preview(db, settings, vault, ident, actor, broker_factory=PreviewBroker):
     ident = str(ident)
     with db.session() as s:
-        state = s.get(State, 1)
+        state = s.scalar(select(State).where(State.id == 1).with_for_update())
         row = s.scalar(select(TradeIdea).where(TradeIdea.id == ident).with_for_update())
         if not row:
             raise HTTPException(404, "Idea not found")
+        submission = s.get(OrderSubmission, ident)
+        if submission and submission.state != "not_sent":
+            raise HTTPException(409, "Submission already started; check its result before further action")
         if not state.account_verified or row.status != "awaiting_review" or aware(row.expires_at) <= now():
             raise HTTPException(409, "Idea expired, reviewed, or brokerage connection unavailable")
         if row.preview_started_at and aware(row.preview_started_at) > now()-timedelta(seconds=180):
             raise HTTPException(429, "Preview already in progress; wait before retrying")
-        if row.preview_at and aware(row.preview_at) > now()-timedelta(seconds=30):
+        if (row.preview_at and aware(row.preview_at) > now()-timedelta(seconds=30)
+                and row.preview_generation == state.generation):
             return serialize(row)
         started_at = now()
         row.preview_started_at = started_at
-        account, terms_hash = vault.decrypt(state.account_cipher), row.terms_hash
+        account, terms_hash, generation = vault.decrypt(state.account_cipher), row.terms_hash, state.generation
         terms = Terms.model_validate(row.payload["terms"])
     broker = None
     try:
@@ -247,11 +253,14 @@ async def preview(db, settings, vault, ident, actor, broker_factory=PreviewBroke
         result = await broker.call(f"review_{terms.asset}_order", terms.broker_arguments(account))
         validate_echo(terms, result)
         with db.session() as s:
+            state = s.scalar(select(State).where(State.id == 1).with_for_update())
             row = s.scalar(select(TradeIdea).where(TradeIdea.id == ident).with_for_update())
             if (row.status != "awaiting_review" or row.terms_hash != terms_hash or aware(row.expires_at) <= now()
-                    or aware(row.preview_started_at) != started_at):
+                    or aware(row.preview_started_at) != started_at or state.generation != generation
+                    or not state.account_verified or vault.decrypt(state.account_cipher) != account):
                 raise HTTPException(409, "Idea changed or expired while retrieving preview")
             row.preview, row.preview_at, row.preview_started_at = mask_accounts(result), now(), None
+            row.preview_generation = generation
             s.add(Audit(id=str(uuid4()), actor=actor, action="broker_preview_read", details={"idea_id": ident}))
             return serialize(row)
     finally:
@@ -270,6 +279,9 @@ def decide(db, actor, ident, body):
         row = s.get(TradeIdea, ident)
         if not row:
             raise HTTPException(404, "Idea not found")
+        submission = s.get(OrderSubmission, ident)
+        if submission and submission.state != "not_sent":
+            raise HTTPException(409, "Submission already started; decisions cannot cancel a brokerage order")
         audit = s.get(Audit, str(body.request_id))
         details = {"idea_id": ident, "request": body.model_dump(mode="json")}
         if audit:

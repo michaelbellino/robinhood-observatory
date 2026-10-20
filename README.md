@@ -1,6 +1,6 @@
 # Robinhood Observatory
 
-Portable, single-owner account monitoring and bounded research. **Observe only.** No brokerage write, preview, cancel, exercise, transfer or permission-changing tools are exposed or implemented. Paper proposals are separate, hypothetical, unfilled records.
+Portable, single-owner account monitoring, research, and **user-operated order entry**. The worker and chat tools remain observe/propose only. The authenticated `/trades` dashboard supports broker previews and an explicit owner Submit order button for stock limits and single-leg long options. No automatic order execution. Paper proposals remain separate, hypothetical, unfilled records.
 
 **2026-10-16 implementation status:** independent account reconciliation and quote polling, reusable MCP sessions, durable checkpoints, authenticated dashboard/MCP, and observe-only analysis infrastructure are implemented. The latest release passes 181 automated tests including real PostgreSQL recovery/restore tests. Deployment-specific account metadata, operational measurements and acceptance evidence are retained privately by the owner. See [market-data research](docs/MARKET-DATA-2026-10-16.md), [capabilities](docs/CAPABILITIES-2026-10-16.md) and [handoff](docs/HANDOFF.md). Test results do not establish a deployment's full-session reliability.
 
@@ -12,7 +12,7 @@ Portable, single-owner account monitoring and bounded research. **Observe only.*
 - PostgreSQL application state with Alembic migrations. Encrypted broker credentials, including refresh tokens, survive restarts. Secrets and financial data stay out of the repository.
 - Options contracts, legs, strategies, source timestamps and explicit unknowns. Quote polling, not streaming. Observe-only methodology interface.
 - Replaceable OpenAI Responses adapter; structured validation, source references, no tools, minimized input, daily/monthly application spending reservations. AI defaults off and never gates core collection.
-- Authenticated stored-data MCP at `/mcp/read/` and `/mcp/control/`. The latter only pauses/resumes monitoring. Neither is a brokerage proxy.
+- Authenticated stored-data MCP at `/mcp/read/` and `/mcp/control/`. The latter manages monitoring and saves research proposals. Neither exposes order submission; the owner-session dashboard is the only submission route.
 
 ## Local development
 
@@ -26,7 +26,7 @@ npm ci --ignore-scripts
 npm run check:infra
 ```
 
-Without `TEST_DATABASE_URL`, seven PostgreSQL tests explicitly skip. That is **not** an acceptance pass. Dedicated test databases must contain `test` in their names; the test fixture resets only that database. Run against a disposable database, never production. CI supplies one and exercises encrypted backup/restore.
+Without `TEST_DATABASE_URL`, PostgreSQL tests explicitly skip. That is **not** an acceptance pass. Dedicated test databases must contain `test` in their names; the test fixture resets only that database. Run against a disposable database, never production. CI supplies one and exercises encrypted backup/restore.
 
 For a complete local stack:
 
@@ -45,4 +45,4 @@ MIT license covers this application, not Robinhood brokerage/market-data rights,
 
 ## Trade review and phone notifications
 
-`/trades` provides a real-instrument research inbox, broker previews, encrypted phone Web Push, and matching observed-order tracking after **manual submission in Robinhood**. Automatic trade selection, one-click brokerage submission and ChatGPT event delivery are not enabled. See [workflow, setup, limitations and sources](docs/NOTIFICATIONS-AND-TRADE-REVIEW.md). The synthetic workbench remains separate.
+`/trades` provides a real-instrument research inbox, broker previews, encrypted phone Web Push, and **direct user-operated submission**. The signed-in owner reviews exact terms and a fresh preview, acknowledges use of real funds, and clicks Submit order. Automatic trade selection, worker execution and ChatGPT event delivery are not enabled. See [workflow, setup, limitations and sources](docs/NOTIFICATIONS-AND-TRADE-REVIEW.md). The synthetic workbench remains separate.

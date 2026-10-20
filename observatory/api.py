@@ -29,7 +29,7 @@ from .security import Vault, bearer_principal, principal, require_control
 from .service import status, history, change_pause, start_observations
 from .market import market_status
 from .settings import Settings
-from . import rehearsal, assistant, trade_review, push
+from . import rehearsal, assistant, trade_review, push, manual_orders
 
 STATIC = Path(__file__).parent / "static"
 
@@ -83,7 +83,7 @@ def create_app(settings=None, database=None):
 
     @read.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
     async def trade_review_inbox(limit: int = 20) -> dict:
-        return {"ideas": trade_review.list_ideas(db, limit), "execution_route": "manual_robinhood"}
+        return {"ideas": trade_review.list_ideas(db, limit), "execution_route": "owner_dashboard"}
 
     @control.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
                                              idempotentHint=True, openWorldHint=False))
@@ -174,7 +174,7 @@ def create_app(settings=None, database=None):
             response = await call_next(request)
         except Exception as exc:
             log_request_failure(exc)
-            response = JSONResponse({"detail": "Request failed; state remains unchanged"}, status_code=500)
+            response = JSONResponse({"detail": "Request failed. Refresh status before repeating any action."}, status_code=500)
         finally:
             principal.reset(token)
         response.headers.update(
@@ -306,7 +306,8 @@ def create_app(settings=None, database=None):
 
     @app.get("/api/trades")
     async def get_ideas():
-        return {"ideas": trade_review.list_ideas(db), "execution_route": "manual_robinhood",
+        return {"ideas": trade_review.list_ideas(db), "execution_route": "owner_dashboard",
+                "submissions": manual_orders.get_results(db),
                 "automatic_recommendations": "awaiting_methodology", "automatic_submission": False}
 
     @app.post("/api/trades")
@@ -317,11 +318,16 @@ def create_app(settings=None, database=None):
     @app.post("/api/trades/{ident}/preview")
     async def preview_idea(ident: uuid.UUID):
         actor = owner_session()
-        return await trade_review.preview(db, settings, vault, ident, actor["sub"])
+        return await trade_review.preview(db, settings, vault, ident, actor["sub"], manual_orders.OwnerOrderBroker)
 
     @app.post("/api/trades/{ident}/decision")
     async def decide_idea(ident: uuid.UUID, body: trade_review.Decision):
         return trade_review.decide(db, owner_session()["sub"], ident, body)
+
+    @app.post("/api/trades/{ident}/submit")
+    async def submit_owner_order(ident: uuid.UUID, body: manual_orders.SubmitOrder):
+        actor = owner_session()
+        return await manual_orders.submit(db, settings, vault, ident, actor["sub"], body)
 
     @app.post("/api/trades/{ident}/link/{order_id}")
     async def link_idea_order(ident: uuid.UUID, order_id: uuid.UUID):
