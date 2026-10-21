@@ -308,7 +308,7 @@ def create_app(settings=None, database=None):
     async def get_ideas():
         return {"ideas": trade_review.list_ideas(db), "execution_route": "owner_dashboard",
                 "submissions": manual_orders.get_results(db),
-                "automatic_recommendations": "hosted_analysis_not_configured",
+                "automatic_recommendations": "external_proposal_producer_only",
                 "analysis": status(db)["analysis"], "automatic_submission": False}
 
     @app.post("/api/trades/{ident}/revise")

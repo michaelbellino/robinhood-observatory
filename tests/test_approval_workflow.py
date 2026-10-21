@@ -1,5 +1,6 @@
 """Approval-to-status regression coverage. Synthetic data and HTTP transport only."""
 from datetime import timedelta
+import asyncio
 from uuid import uuid4
 
 import pytest
@@ -115,3 +116,56 @@ def test_edit_and_reconcile_require_session_csrf_and_no_get_mutations(client, co
     assert client.get(f'/api/trades/{idea["id"]}/submit').status_code == 405
     assert client.post(f'/api/trades/{idea["id"]}/revise', json=body).status_code == 403
     assert client.post(f'/api/trades/{idea["id"]}/revise', headers=headers, json=body).status_code == 200
+
+
+async def test_late_preparation_cannot_erase_newer_approval(configured, settings, vault, transport):
+    idea, approval = ready(configured, settings)
+    replacement = []
+
+    def replace_approval():
+        with configured.session() as s:
+            s.get(OrderSubmission, idea["id"]).updated_at = now()-timedelta(minutes=4)
+            orders.reconcile_records(s, {"equity_orders": []}, s.get(State, 1).account_cipher, now())
+        replacement.append(orders.reserve(configured, settings.owner_subject, idea["id"], approval))
+
+    transport.before_send = replace_approval
+    result = await orders.submit(configured, settings, vault, idea["id"], settings.owner_subject, approval, transport.factory)
+    assert result["state"] == "preparing"
+    assert replacement[0][0] is not None and not transport.sent
+    assert result["approval"]["attempt_id"] == replacement[0][0][-1]
+
+
+async def test_stale_snapshot_cannot_regress_fills(configured, settings, vault, transport):
+    idea, approval = ready(configured, settings)
+    initial = await orders.submit(configured, settings, vault, idea["id"], settings.owner_subject, approval, transport.factory)
+    filled = {**initial["order"], "state": "filled", "cumulative_quantity": "1", "processed_quantity": "1"}
+    for observed in (filled, initial["order"]):
+        with configured.session() as s:
+            orders.reconcile_records(s, {"equity_orders": [observed]}, s.get(State, 1).account_cipher, now())
+    assert orders.get_results(configured)[idea["id"]]["order_status"] == "filled"
+
+
+@pytest.mark.parametrize("failure", [None, "timeout"])
+async def test_late_response_cannot_overwrite_reconciled_fill(configured, settings, vault, transport, failure):
+    idea, approval = ready(configured, settings)
+    transport.response_gate = asyncio.Event()
+    transport.failure = failure
+    task = asyncio.create_task(orders.submit(configured, settings, vault, idea["id"], settings.owner_subject, approval, transport.factory))
+    try:
+        for _ in range(100):
+            if transport.sent:
+                break
+            await asyncio.sleep(0.001)
+        assert transport.sent
+        args = transport.sent[0][1]
+        filled = {**args, "id": str(uuid4()), "state": "filled", "price": args["limit_price"],
+                  "cumulative_quantity": "1", "processed_quantity": "1"}
+        with configured.session() as s:
+            orders.reconcile_records(s, {"equity_orders": [filled]}, s.get(State, 1).account_cipher, now())
+        transport.response_gate.set()
+        result = await task
+        assert result["order_status"] == "filled" and result["order"]["id"] == filled["id"]
+        assert len(transport.sent) == 1
+    finally:
+        transport.response_gate.set()
+        await task

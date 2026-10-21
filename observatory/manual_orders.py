@@ -168,6 +168,12 @@ def reconcile_records(session, payload, account_cipher, observed_at):
             order = checked_order(review.Terms.model_validate(row.payload["terms"]), {"order": matches[0]})
         except (MalformedData, ValueError, KeyError, TypeError, ArithmeticError):
             continue
+        if sub.order:
+            previous_fill = Decimal(str(sub.order.get("processed_quantity", sub.order.get("cumulative_quantity", "0"))))
+            current_fill = Decimal(str(order.get("processed_quantity", order.get("cumulative_quantity", "0"))))
+            terminal = {"filled", "rejected", "cancelled", "expired", "partially_filled_then_cancelled"}
+            if current_fill < previous_fill or (order_status(sub.order) in terminal and order_status(order) != order_status(sub.order)):
+                continue
         sub.order, sub.state, sub.updated_at = order, "acknowledged", observed_at
         sub.message = status_message(order)
         row.broker_order_id, row.status = order["id"], "submitted_by_owner"
@@ -238,13 +244,16 @@ def reserve(db, actor, ident, body):
         sub.actor, sub.request_hash, sub.generation = actor, request_hash, state.generation
         sub.state, sub.started_at, sub.updated_at, sub.message = "preparing", now(), now(), None
         sub.approved_at = now()
-        sub.approval = {"proposal_id": row.id, "version": row.version or 1,
+        attempt_id = str(uuid4())
+        sub.approval = {"attempt_id": attempt_id, "proposal_id": row.id, "version": row.version or 1,
                         "terms_hash": row.terms_hash, "preview_hash": body.preview_hash,
                         "account": row.account_label, "terms": row.payload["terms"],
                         "acknowledge_broker_alerts": body.acknowledge_broker_alerts}
         s.add(sub)
-        s.add(Audit(id=str(uuid4()), actor=actor, action="owner_order_requested", details={"idea_id": ident, "ref_id": sub.ref_id}))
-        return (state.account_cipher, terms, sub.ref_id, sub.generation, request_hash), None
+        s.add(Audit(id=str(uuid4()), actor=actor, action="owner_order_requested",
+                    details={"idea_id": ident, "ref_id": sub.ref_id, "approval": sub.approval,
+                             "approved_at": sub.approved_at.isoformat()}))
+        return (state.account_cipher, terms, sub.ref_id, sub.generation, request_hash, attempt_id), None
 
 
 async def eligibility(broker, account, terms):
@@ -322,7 +331,7 @@ async def submit(db, settings, vault, ident, actor, body, broker_factory=OwnerOr
     reservation, previous = reserve(db, actor, ident, body)
     if previous is not None:
         return previous
-    cipher, terms, ref_id, generation, request_hash = reservation
+    cipher, terms, ref_id, generation, request_hash, attempt_id = reservation
     broker, dispatched = None, False
     try:
         account = vault.decrypt(cipher)
@@ -350,6 +359,8 @@ async def submit(db, settings, vault, ident, actor, body, broker_factory=OwnerOr
                         or state.account_cipher != cipher or sub.state != "preparing"
                         or sub.ref_id != ref_id or sub.request_hash != request_hash):
                     raise HTTPException(409, "Account or submission state changed; refresh before continuing")
+                if (sub.approval or {}).get("attempt_id") != attempt_id:
+                    raise HTTPException(409, "This interrupted approval was replaced; refresh its status")
                 validate_review(row, body, generation)
                 sub.state, sub.updated_at = "transmitting", now()
                 row.status = "submission_in_progress"
@@ -359,7 +370,10 @@ async def submit(db, settings, vault, ident, actor, body, broker_factory=OwnerOr
         response = await broker.call(name, args)
         order = checked_order(terms, response)
         with db.session() as s:
+            s.scalar(select(State).where(State.id == 1).with_for_update())
             sub = s.get(OrderSubmission, ident)
+            if sub.state == "acknowledged":
+                return result(sub)  # Reconciliation can observe a fill before this response arrives.
             row = s.get(TradeIdea, ident)
             sub.state, sub.order, sub.updated_at = "acknowledged", order, now()
             sub.message = status_message(order)
@@ -370,7 +384,12 @@ async def submit(db, settings, vault, ident, actor, body, broker_factory=OwnerOr
             return result(sub)
     except (Exception, asyncio.CancelledError) as exc:
         with db.session() as s:
+            s.scalar(select(State).where(State.id == 1).with_for_update())
             sub = s.get(OrderSubmission, ident)
+            if (sub.approval or {}).get("attempt_id") != attempt_id or sub.state == "acknowledged":
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
+                return result(sub)
             sub.state, sub.updated_at = ("unknown" if dispatched else "not_sent"), now()
             row = s.get(TradeIdea, ident)
             row.status = "submission_unknown" if dispatched else "awaiting_review"

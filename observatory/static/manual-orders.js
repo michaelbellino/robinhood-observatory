@@ -37,6 +37,8 @@ const OwnerOrders = Object.freeze({
         text(`Robinhood order ${submission.order.id} · ${submission.order.state}`);
         const order = submission.order;
         text(`Filled quantity reported by broker: ${order.processed_quantity ?? order.cumulative_quantity ?? "not reported"}.`);
+        if (order.average_price) text(`Average execution price reported by broker: $${order.average_price}.`);
+        if (order.reject_reason) text(`Broker rejection reason: ${order.reject_reason}`);
       }
       if (!submission.retry_allowed) {
         if (submission.state === "unknown") text("Check this order in Robinhood before taking further action. Other submissions are blocked until the uncertainty is resolved.");
