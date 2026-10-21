@@ -17,7 +17,7 @@ from pydantic import Field
 from sqlalchemy import select
 
 from .broker import PreviewBroker, MalformedData
-from .db import OrderSubmission, TradeIdea, State, Audit, now, aware
+from .db import OrderSubmission, TradeIdea, State, Audit, Event, now, aware
 from .domain import StrictModel
 from .oauth import RobinhoodOAuth
 from .rate_limit import RequestLimiter
@@ -29,6 +29,7 @@ _rpc_ids = itertools.count(100000)
 
 
 class SubmitOrder(StrictModel):
+    version: int = Field(default=1, ge=1, strict=True)
     terms_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     preview_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     acknowledge_real_order: Literal[True]
@@ -75,6 +76,7 @@ class OwnerOrderBroker(PreviewBroker):
 
 def validate_review(row, body, generation):
     if (row.status != "awaiting_review" or row.broker_order_id or aware(row.expires_at) <= now()
+            or (row.version or 1) != body.version
             or row.terms_hash != body.terms_hash or fingerprint(row.payload) != body.terms_hash):
         raise HTTPException(409, "Order terms changed, expired, or were already handled")
     terms = review.Terms.model_validate(row.payload["terms"])
@@ -98,6 +100,9 @@ def result(sub):
     if state in {"preparing", "transmitting"} and aware(sub.updated_at) < now()-timedelta(minutes=3):
         state = "unknown"
     return {"state": state, "ref_id": sub.ref_id, "order": sub.order,
+            "order_status": order_status(sub.order) if sub.order else None,
+            "approved_at": aware(sub.approved_at), "approved_by": sub.actor,
+            "approval": sub.approval,
             "updated_at": aware(sub.updated_at), "message": sub.message or (
                 "Submission interrupted. Check Robinhood; automatic resend is disabled." if state == "unknown" else None),
             "may_have_been_submitted": state in {"transmitting", "unknown", "acknowledged"},
@@ -110,6 +115,107 @@ def get_results(db):
                 .order_by(OrderSubmission.started_at.desc()).limit(100))}
 
 
+def order_status(order):
+    """Keep the broker's raw state; HTTP success alone is never fill evidence."""
+    raw = order.get("state")
+    return {"new": "submitted", "queued": "accepted", "confirmed": "accepted",
+            "unconfirmed": "submitted", "partially_filled": "partially_filled",
+            "filled": "filled", "rejected": "rejected", "failed": "rejected",
+            "cancelled": "cancelled", "canceled": "cancelled", "voided": "cancelled",
+            "partially_filled_rest_cancelled": "partially_filled_then_cancelled",
+            "expired": "expired"}.get(raw, "broker_status_unrecognized")
+
+
+def status_message(order):
+    state = order_status(order)
+    if state == "rejected":
+        return "Robinhood rejected the order. Review its rejection reason before preparing another proposal."
+    if state == "filled":
+        return "Robinhood reports this order filled. See the reported quantity and execution price."
+    if state == "partially_filled":
+        return "Robinhood reports a partial fill. The remaining quantity is not reported filled."
+    return "Broker order status received. Submission or acceptance is not proof of a fill."
+
+
+def order_event(session, sub):
+    ident = fingerprint({"idea": sub.idea_id, "state": sub.order.get("state"),
+                         "filled": sub.order.get("processed_quantity", sub.order.get("cumulative_quantity"))})
+    if not session.get(Event, ident):
+        session.add(Event(id=ident, kind="trade_order_status", payload={"idea_id": sub.idea_id}))
+
+
+def reconcile_records(session, payload, account_cipher, observed_at):
+    """Read evidence only. Unknown outcomes require an exact broker reference, never a similarity match."""
+    for sub in session.scalars(select(OrderSubmission).with_for_update()):
+        row = session.get(TradeIdea, sub.idea_id)
+        if (not row or not row.account_cipher or row.account_cipher != account_cipher
+                or aware(observed_at) < aware(sub.updated_at) or sub.state == "not_sent"):
+            continue
+        if sub.state == "preparing":
+            # No transmission can precede the durable transmitting transition.
+            # The original request rechecks this state immediately before I/O.
+            if aware(sub.updated_at) < now()-timedelta(minutes=3):
+                sub.state, row.status = "not_sent", "awaiting_review"
+                sub.message = "Approval interrupted before transmission. Refresh the preview and approve again."
+                sub.updated_at = now()
+            continue
+        orders = payload.get(f'{row.payload["terms"]["asset"]}_orders', [])
+        matches = [x for x in orders if (x.get("id") == row.broker_order_id if row.broker_order_id
+                    else x.get("ref_id") == sub.ref_id)]
+        if len(matches) != 1:
+            continue  # Absence, incomplete pagination, and multiple matches never authorize resending.
+        try:
+            order = checked_order(review.Terms.model_validate(row.payload["terms"]), {"order": matches[0]})
+        except (MalformedData, ValueError, KeyError, TypeError, ArithmeticError):
+            continue
+        if sub.order:
+            previous_fill = Decimal(str(sub.order.get("processed_quantity", sub.order.get("cumulative_quantity", "0"))))
+            current_fill = Decimal(str(order.get("processed_quantity", order.get("cumulative_quantity", "0"))))
+            terminal = {"filled", "rejected", "cancelled", "expired", "partially_filled_then_cancelled"}
+            if current_fill < previous_fill or (order_status(sub.order) in terminal and order_status(order) != order_status(sub.order)):
+                continue
+        sub.order, sub.state, sub.updated_at = order, "acknowledged", observed_at
+        sub.message = status_message(order)
+        row.broker_order_id, row.status = order["id"], "submitted_by_owner"
+        order_event(session, sub)
+
+
+async def reconcile(db, settings, vault, ident, broker_factory=PreviewBroker):
+    """Owner-requested broker reads. This function has no placement method or retry path."""
+    with db.session() as s:
+        state = s.get(State, 1)
+        row, sub = s.get(TradeIdea, str(ident)), s.get(OrderSubmission, str(ident))
+        if not row or not sub:
+            raise HTTPException(404, "Submission not found")
+        if not state.account_verified or row.account_cipher != state.account_cipher:
+            raise HTTPException(409, "Reconnect the proposal's original account to reconcile this order")
+        account_cipher, order_id = row.account_cipher, row.broker_order_id
+        asset, started = row.payload["terms"]["asset"], sub.started_at
+    account = vault.decrypt(account_cipher)
+    broker = broker_factory(await RobinhoodOAuth(db, vault, settings).access_token(), account, settings.broker_rpm)
+    broker.limiter = RequestLimiter(db, settings.broker_rpm)
+    try:
+        await broker.initialize()
+        args = {"account_number": account}
+        if order_id:
+            args["order_id"] = order_id
+        else:
+            args["created_at_gte"] = aware(started).isoformat()
+        orders = await broker.pages(f"get_{asset}_orders", "orders", args)
+        with db.session() as s:
+            state = s.scalar(select(State).where(State.id == 1).with_for_update())
+            if not state.account_verified or state.account_cipher != account_cipher:
+                raise HTTPException(409, "Account changed during reconciliation")
+            reconcile_records(s, {f"{asset}_orders": orders}, account_cipher, now())
+            sub = s.get(OrderSubmission, str(ident))
+            if sub.state in {"unknown", "transmitting"}:
+                sub.message = ("No uniquely matching broker reference was returned. Outcome remains unresolved; "
+                               "do not resubmit. Check Robinhood Activity or contact Robinhood with this reference ID.")
+            return result(sub)
+    finally:
+        await broker.close()
+
+
 def reserve(db, actor, ident, body):
     """Serialize competing requests before any broker write; reused keys never resubmit."""
     request_hash = fingerprint(body.model_dump(mode="json"))
@@ -120,6 +226,8 @@ def reserve(db, actor, ident, body):
             raise HTTPException(404, "Idea not found")
         old = s.get(OrderSubmission, ident)
         if old and result(old)["state"] != "not_sent":
+            if old.request_hash != request_hash or old.actor != actor:
+                raise HTTPException(409, "This proposal already has a different approval; refresh its status")
             return None, result(old)
         unresolved = s.scalar(select(OrderSubmission).where(OrderSubmission.idea_id != ident,
                               OrderSubmission.state.in_(["preparing", "transmitting", "unknown"])))
@@ -127,15 +235,25 @@ def reserve(db, actor, ident, body):
             raise HTTPException(409, "Another submission is in progress or has an unknown outcome; resolve it before submitting again")
         if not state.account_verified or state.paused:
             raise HTTPException(409, "Resume and verify the selected account before submitting")
+        if not row.account_cipher or row.account_cipher != state.account_cipher:
+            raise HTTPException(409, "Selected account changed; create and review a new proposal version")
         terms = validate_review(row, body, state.generation)
         if row.preview_started_at:
             raise HTTPException(409, "Wait for the current broker preview to finish")
         sub = old or OrderSubmission(idea_id=ident, ref_id=str(uuid4()))
         sub.actor, sub.request_hash, sub.generation = actor, request_hash, state.generation
         sub.state, sub.started_at, sub.updated_at, sub.message = "preparing", now(), now(), None
+        sub.approved_at = now()
+        attempt_id = str(uuid4())
+        sub.approval = {"attempt_id": attempt_id, "proposal_id": row.id, "version": row.version or 1,
+                        "terms_hash": row.terms_hash, "preview_hash": body.preview_hash,
+                        "account": row.account_label, "terms": row.payload["terms"],
+                        "acknowledge_broker_alerts": body.acknowledge_broker_alerts}
         s.add(sub)
-        s.add(Audit(id=str(uuid4()), actor=actor, action="owner_order_requested", details={"idea_id": ident, "ref_id": sub.ref_id}))
-        return (state.account_cipher, terms, sub.ref_id, sub.generation, request_hash), None
+        s.add(Audit(id=str(uuid4()), actor=actor, action="owner_order_requested",
+                    details={"idea_id": ident, "ref_id": sub.ref_id, "approval": sub.approval,
+                             "approved_at": sub.approved_at.isoformat()}))
+        return (state.account_cipher, terms, sub.ref_id, sub.generation, request_hash, attempt_id), None
 
 
 async def eligibility(broker, account, terms):
@@ -213,7 +331,7 @@ async def submit(db, settings, vault, ident, actor, body, broker_factory=OwnerOr
     reservation, previous = reserve(db, actor, ident, body)
     if previous is not None:
         return previous
-    cipher, terms, ref_id, generation, request_hash = reservation
+    cipher, terms, ref_id, generation, request_hash, attempt_id = reservation
     broker, dispatched = None, False
     try:
         account = vault.decrypt(cipher)
@@ -237,9 +355,12 @@ async def submit(db, settings, vault, ident, actor, body, broker_factory=OwnerOr
                 row = s.scalar(select(TradeIdea).where(TradeIdea.id == ident).with_for_update())
                 sub = s.get(OrderSubmission, ident)
                 if (not state.account_verified or state.paused or state.generation != generation
+                        or row.account_cipher != cipher
                         or state.account_cipher != cipher or sub.state != "preparing"
                         or sub.ref_id != ref_id or sub.request_hash != request_hash):
                     raise HTTPException(409, "Account or submission state changed; refresh before continuing")
+                if (sub.approval or {}).get("attempt_id") != attempt_id:
+                    raise HTTPException(409, "This interrupted approval was replaced; refresh its status")
                 validate_review(row, body, generation)
                 sub.state, sub.updated_at = "transmitting", now()
                 row.status = "submission_in_progress"
@@ -249,17 +370,26 @@ async def submit(db, settings, vault, ident, actor, body, broker_factory=OwnerOr
         response = await broker.call(name, args)
         order = checked_order(terms, response)
         with db.session() as s:
+            s.scalar(select(State).where(State.id == 1).with_for_update())
             sub = s.get(OrderSubmission, ident)
+            if sub.state == "acknowledged":
+                return result(sub)  # Reconciliation can observe a fill before this response arrives.
             row = s.get(TradeIdea, ident)
             sub.state, sub.order, sub.updated_at = "acknowledged", order, now()
-            sub.message = "Broker acknowledged the order. Submission is not proof of a fill."
+            sub.message = status_message(order)
             row.status, row.broker_order_id = "submitted_by_owner", order["id"]
             s.add(Audit(id=str(uuid4()), actor=actor, action="owner_order_acknowledged",
                         details={"idea_id": ident, "ref_id": ref_id, "order_id": order["id"]}))
+            order_event(s, sub)
             return result(sub)
     except (Exception, asyncio.CancelledError) as exc:
         with db.session() as s:
+            s.scalar(select(State).where(State.id == 1).with_for_update())
             sub = s.get(OrderSubmission, ident)
+            if (sub.approval or {}).get("attempt_id") != attempt_id or sub.state == "acknowledged":
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
+                return result(sub)
             sub.state, sub.updated_at = ("unknown" if dispatched else "not_sent"), now()
             row = s.get(TradeIdea, ident)
             row.status = "submission_unknown" if dispatched else "awaiting_review"
@@ -276,3 +406,4 @@ async def submit(db, settings, vault, ident, actor, body, broker_factory=OwnerOr
                 await broker.close()
             except Exception:
                 pass  # Closing transport cannot change a recorded broker outcome.
+

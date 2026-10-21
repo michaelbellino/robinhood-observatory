@@ -30,18 +30,22 @@ const OwnerOrders = Object.freeze({
     const text = value => { const p = document.createElement("p"); p.textContent = value; box.append(p); };
     if (submission) {
       text(`Submission: ${submission.state.replaceAll("_", " ")}`);
+      if(submission.order_status) text(`Broker result: ${submission.order_status.replaceAll("_", " ")}`);
+      if(submission.approved_at) text(`Approved ${new Date(submission.approved_at).toLocaleString()} · version ${submission.approval?.version || 1}`);
       if (submission.message) text(submission.message);
       if (submission.order) {
         text(`Robinhood order ${submission.order.id} · ${submission.order.state}`);
         const order = submission.order;
         text(`Filled quantity reported by broker: ${order.processed_quantity ?? order.cumulative_quantity ?? "not reported"}.`);
+        if (order.average_price) text(`Average execution price reported by broker: $${order.average_price}.`);
+        if (order.reject_reason) text(`Broker rejection reason: ${order.reject_reason}`);
       }
       if (!submission.retry_allowed) {
         if (submission.state === "unknown") text("Check this order in Robinhood before taking further action. Other submissions are blocked until the uncertainty is resolved.");
         return box;
       }
     }
-    if (idea.status !== "awaiting_review" || !idea.preview) return box;
+    if (idea.status !== "awaiting_review" || !idea.preview || idea.account_bound === false) return box;
     const t = idea.payload.terms;
     const hasAlerts = Object.keys(idea.preview.order_checks || {}).length > 0;
     let alertCheck;
@@ -59,19 +63,19 @@ const OwnerOrders = Object.freeze({
     label.append(check, words);
     const button = document.createElement("button");
     button.className = "submit-order";
-    button.textContent = `Submit ${t.asset === "equity" ? "stock" : "options"} order`;
+    button.textContent = `Approve and submit ${t.asset === "equity" ? "stock" : "options"} order`;
     button.disabled = true;
     const enable = () => { button.disabled = !check.checked || (hasAlerts && !alertCheck.checked); };
     check.onchange = enable;
     if (alertCheck) alertCheck.onchange = enable;
     button.onclick = async () => {
-      if (!check.checked || (hasAlerts && !alertCheck.checked)) return;
+      if (button.disabled || !check.checked || (hasAlerts && !alertCheck.checked)) return;
       button.disabled = check.disabled = true;
       if (alertCheck) alertCheck.disabled = true;
       notice("Checking this exact order and submitting your request. Wait for the broker response; do not submit again elsewhere.");
       try {
         const response = await api(`/api/trades/${idea.id}/submit`, {
-          terms_hash: idea.terms_hash, preview_hash: idea.preview_hash, acknowledge_real_order: true,
+          version: idea.version || 1, terms_hash: idea.terms_hash, preview_hash: idea.preview_hash, acknowledge_real_order: true,
           acknowledge_broker_alerts: !!alertCheck?.checked
         });
         await reload();
@@ -86,3 +90,4 @@ const OwnerOrders = Object.freeze({
     return box;
   }
 });
+

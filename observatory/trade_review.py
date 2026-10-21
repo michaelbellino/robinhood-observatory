@@ -132,6 +132,45 @@ class OwnerTicket(StrictModel):
     note: str = Field(default="", max_length=2000)
 
 
+class Revision(StrictModel):
+    request_id: UUID
+    terms_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    terms: Terms
+    valid_for_seconds: int = Field(default=900, ge=60, le=604800, strict=True)
+
+
+def revise(db, actor, ident, body):
+    """An edit retires the old version atomically. It never carries approval forward."""
+    with db.session() as s:
+        state = s.scalar(select(State).where(State.id == 1).with_for_update())
+        row = s.get(TradeIdea, str(ident))
+        if not row:
+            raise HTTPException(404, "Proposal not found")
+        request_hash = fingerprint(body.model_dump(mode="json"))
+        old = s.get(TradeIdea, str(body.request_id))
+        if old:
+            if old.parent_id != row.id or old.request_hash != request_hash:
+                raise HTTPException(409, "Revision request ID conflict")
+            return serialize(old)
+        sub = s.get(OrderSubmission, row.id)
+        if (row.status not in {"awaiting_review", "needs_review"} or row.broker_order_id
+                or (sub and sub.state != "not_sent") or row.terms_hash != body.terms_hash):
+            raise HTTPException(409, "Proposal changed or submission started; refresh its status")
+        if not state.account_verified or not state.account_cipher:
+            raise HTTPException(409, "Verify the selected account before creating a new version")
+        payload = {**row.payload, "terms": body.terms.model_dump(mode="json")}
+        new = TradeIdea(id=str(body.request_id), parent_id=row.id, version=(row.version or 1)+1,
+            payload=payload, request_hash=request_hash, terms_hash=fingerprint(payload),
+            account_cipher=state.account_cipher, account_label=state.account_label,
+            created_at=now(), expires_at=now()+timedelta(seconds=body.valid_for_seconds), status="awaiting_review")
+        row.status = "superseded"
+        s.add(new)
+        s.add(Audit(id=str(uuid4()), actor=actor, action="proposal_revised",
+                    details={"previous_id": row.id, "idea_id": new.id, "version": new.version}))
+        s.add(Event(id=fingerprint({"idea": new.id}), kind="trade_idea", payload={"idea_id": new.id}))
+        return serialize(new)
+
+
 def create_owner_ticket(db, actor, body):
     return create(db, actor, NewIdea(request_id=body.request_id, terms=body.terms,
         rationale=body.note if len(body.note) >= 10 else "Order entered directly by the account owner.",
@@ -152,6 +191,8 @@ def serialize(row, snapshot=None):
     if status in {"awaiting_review", "ready_for_manual_submission"} and not row.broker_order_id and aware(row.expires_at) <= now():
         status = "expired"
     data = {"id": row.id, "created_at": aware(row.created_at), "expires_at": aware(row.expires_at),
+            "account": row.account_label, "account_bound": bool(row.account_cipher),
+            "version": row.version or 1, "parent_id": row.parent_id,
             "status": status, "terms_hash": row.terms_hash, "payload": row.payload,
             "preview": row.preview, "preview_at": aware(row.preview_at),
             "preview_hash": fingerprint(row.preview) if row.preview else None,
@@ -191,10 +232,12 @@ def create(db, actor, body):
         # Duplicate proposals should not cause repeated alerts during the review window.
         terms_hash = fingerprint(payload)
         duplicate = s.scalar(select(TradeIdea).where(TradeIdea.terms_hash == terms_hash,
+                            TradeIdea.account_cipher == state.account_cipher,
                             TradeIdea.status == "awaiting_review", TradeIdea.expires_at > now()))
         if duplicate:
             return serialize(duplicate)
         row = TradeIdea(id=str(body.request_id), payload=payload, request_hash=request_hash,
+                        account_cipher=state.account_cipher, account_label=state.account_label, version=1,
                         terms_hash=terms_hash, created_at=now(), expires_at=now()+timedelta(seconds=body.valid_for_seconds),
                         status="awaiting_review")
         s.add(row)
@@ -294,6 +337,8 @@ async def preview(db, settings, vault, ident, actor, broker_factory=PreviewBroke
             raise HTTPException(409, "Submission already started; check its result before further action")
         if not state.account_verified or row.status != "awaiting_review" or aware(row.expires_at) <= now():
             raise HTTPException(409, "Idea expired, reviewed, or brokerage connection unavailable")
+        if not row.account_cipher or row.account_cipher != state.account_cipher:
+            raise HTTPException(409, "Selected account changed; create and review a new proposal version")
         if row.preview_started_at and aware(row.preview_started_at) > now()-timedelta(seconds=180):
             raise HTTPException(429, "Preview already in progress; wait before retrying")
         if (row.preview_at and aware(row.preview_at) > now()-timedelta(seconds=30)
@@ -403,3 +448,4 @@ def link_order(db, actor, ident, order_id):
         row.broker_order_id = str(order_id)
         s.add(Audit(id=str(uuid4()), actor=actor, action="broker_order_linked", details={"idea_id": str(ident), "order_id": str(order_id)}))
         return serialize(row, snap)
+

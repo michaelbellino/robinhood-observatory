@@ -157,6 +157,10 @@ class TradeIdea(Base):
     preview_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     preview_generation: Mapped[int | None] = mapped_column(Integer)
     broker_order_id: Mapped[str | None] = mapped_column(String(36))
+    account_cipher: Mapped[str | None] = mapped_column(Text)
+    account_label: Mapped[str | None] = mapped_column(String(80))
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    parent_id: Mapped[str | None] = mapped_column(String(36), unique=True)
 
 
 class OrderSubmission(Base):
@@ -172,6 +176,8 @@ class OrderSubmission(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     order: Mapped[dict | None] = mapped_column(JSON)
     message: Mapped[str | None] = mapped_column(String(400))
+    approval: Mapped[dict | None] = mapped_column(JSON)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class PushDevice(Base):
@@ -270,3 +276,4 @@ class Database:
                 if held and not connection.invalidated:
                     connection.execute(text("SELECT pg_advisory_unlock(734105016)"))
                     connection.commit()
+

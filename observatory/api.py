@@ -308,7 +308,17 @@ def create_app(settings=None, database=None):
     async def get_ideas():
         return {"ideas": trade_review.list_ideas(db), "execution_route": "owner_dashboard",
                 "submissions": manual_orders.get_results(db),
-                "automatic_recommendations": "awaiting_methodology", "automatic_submission": False}
+                "automatic_recommendations": "external_proposal_producer_only",
+                "analysis": status(db)["analysis"], "automatic_submission": False}
+
+    @app.post("/api/trades/{ident}/revise")
+    async def revise_idea(ident: uuid.UUID, body: trade_review.Revision):
+        return trade_review.revise(db, owner_session()["sub"], ident, body)
+
+    @app.post("/api/trades/{ident}/reconcile")
+    async def reconcile_order(ident: uuid.UUID):
+        owner_session()
+        return await manual_orders.reconcile(db, settings, vault, ident)
 
     @app.post("/api/trades")
     async def save_idea(body: trade_review.NewIdea):
@@ -598,3 +608,4 @@ def create_app(settings=None, database=None):
     for name in ["httpx", "httpcore", "authlib", "mcp", "sqlalchemy"]:
         logging.getLogger(name).setLevel(logging.CRITICAL)
     return app
+

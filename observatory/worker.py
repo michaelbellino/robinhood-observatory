@@ -220,6 +220,8 @@ async def run_cycle(db, settings, vault, broker_factory=ReadOnlyBroker, connecti
             changes = record_events(s, payload, previous.payload if previous else None,
                                     previous.id if previous else None)
             s.add(snap)
+            from .manual_orders import reconcile_records
+            reconcile_records(s, payload, row.account_cipher, snap.observed_at)
             row.last_success = now()
             row.status = "degraded" if payload.get("warnings") else "monitoring"
             row.failures = 0
@@ -354,3 +356,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
