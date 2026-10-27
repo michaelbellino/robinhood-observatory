@@ -17,14 +17,13 @@ function render(idea){const card=node("article"),p=idea.payload,t=p.terms,submis
  if(idea.status==="awaiting_review"&&(!submission||submission.retry_allowed)){
   controls.append(action("Refresh broker preview",async()=>{notice("Retrieving broker preview within the shared request limit. This can take about a minute.");await api(`/api/trades/${idea.id}/preview`,{});await load();notice("Current broker preview loaded. Review its terms and alerts.");}));
   controls.append(action("Reject idea",async()=>{await api(`/api/trades/${idea.id}/decision`,{request_id:crypto.randomUUID(),terms_hash:idea.terms_hash,decision:"reject",acknowledge_manual_submission:true});await load();}));
-  if(idea.preview){const label=node("label"),check=node("input");check.type="checkbox";label.className="acknowledge";label.append(check,node("span","I reviewed the exact terms and broker alerts. I will enter and submit any order myself in Robinhood."));const fallback=node("details");fallback.append(node("summary","Enter this order in Robinhood instead"),label);card.append(fallback);const review=action("Prepare for Robinhood",async()=>{await api(`/api/trades/${idea.id}/decision`,{request_id:crypto.randomUUID(),terms_hash:idea.terms_hash,preview_hash:idea.preview_hash,decision:"prepare_in_robinhood",acknowledge_manual_submission:true});await load();notice("Review recorded. No order submitted. Enter and verify these terms in Robinhood.");});review.disabled=true;check.onchange=()=>review.disabled=!check.checked;fallback.append(review);}
+  if(idea.preview){const label=node("label"),check=node("input");check.type="checkbox";label.className="acknowledge";label.append(check,node("span","I reviewed the exact terms and broker alerts. I will enter and submit any order myself in Robinhood."));const fallback=node("details");fallback.append(node("summary","Enter this order in Robinhood"),label);card.append(fallback);const review=action("Prepare for Robinhood",async()=>{await api(`/api/trades/${idea.id}/decision`,{request_id:crypto.randomUUID(),terms_hash:idea.terms_hash,preview_hash:idea.preview_hash,decision:"prepare_in_robinhood",acknowledge_manual_submission:true});await load();notice("Review recorded. No order submitted. Enter and verify these terms in Robinhood.");});review.disabled=true;check.onchange=()=>review.disabled=!check.checked;fallback.append(review);}
  }
  if(idea.status==="ready_for_manual_submission"){
   card.append(node("p","No order has been submitted by Observatory. Verify the current market and exact contract details in Robinhood before submitting. This link opens Robinhood; it does not prefill the order."));
   const link=node("a","Open Robinhood");link.href="https://robinhood.com/";link.target="_blank";link.rel="noopener noreferrer";controls.append(link);
   controls.append(action("Copy exact order terms",async()=>{await navigator.clipboard.writeText(JSON.stringify(t,null,2));notice("Terms copied. Verify them in Robinhood.");}));
-  const input=node("input");input.placeholder="Broker order ID after you submit";input.setAttribute("aria-label","Broker order ID");card.append(input);
-  controls.append(action("Link observed order",async()=>{if(!/^[0-9a-f-]{36}$/i.test(input.value))throw new Error("Enter the broker's order UUID.");await api(`/api/trades/${idea.id}/link/${input.value}`,{});await load();notice("Linked to the broker-observed order. A submitted order is not necessarily filled.");}));
+  card.append(node("p","Order linking is unavailable until account provenance is verified. Check order status in Robinhood."));
  }
  if(idea.broker_order)card.append(node("h4","Observed broker order"),node("pre",JSON.stringify(idea.broker_order,null,2)));
  card.append(OwnerOrders.render(idea,submission,api,load,notice),controls);return card;}
@@ -48,7 +47,7 @@ async function saveOwnerTicket(key,terms) {
  if(pendingOwnerTickets[key]?.text!==text)pendingOwnerTickets[key]={text,body:{request_id:crypto.randomUUID(),terms}};
  const item=await api("/api/trades/owner-ticket",pendingOwnerTickets[key].body);
  delete pendingOwnerTickets[key]; await load();
- notice("Order saved. Refresh its broker preview, review the exact terms, then submit only if you choose.");
+ notice("Order saved. Refresh its broker preview, then enter any order yourself in Robinhood.");
  el(item.id)?.scrollIntoView({behavior:"smooth",block:"start"});
 }
 el("stock-type").onchange=stockControls;stockControls();
@@ -63,5 +62,6 @@ el("stock-form").onsubmit=async event=>{
  } catch(e){notice(e.message);}finally{el("save-stock").disabled=!signedIn;}
 };
 el("advanced-form").onsubmit=async event=>{event.preventDefault();el("save-advanced").disabled=true;try{await saveOwnerTicket("advanced",JSON.parse(el("advanced-json").value));}catch(e){notice(e.message);}finally{el("save-advanced").disabled=!signedIn;}};
-(async()=>{try{const session=await api("/api/session");csrf=session.csrf||"";signedIn=!!csrf&&session.scope==="control";el("signin").hidden=signedIn;el("enable-push").disabled=el("save-proposal").disabled=el("save-stock").disabled=el("save-advanced").disabled=!signedIn;await load();notice("Review inbox ready. Only your explicit Submit order action sends an order.");}catch(e){notice(e.message);}})();
+(async()=>{try{const session=await api("/api/session");csrf=session.csrf||"";signedIn=!!csrf&&session.scope==="control";el("signin").hidden=signedIn;el("enable-push").disabled=el("save-proposal").disabled=el("save-stock").disabled=el("save-advanced").disabled=!signedIn;await load();notice("Review inbox ready. Place any order manually in Robinhood.");}catch(e){notice(e.message);}})();
+
 

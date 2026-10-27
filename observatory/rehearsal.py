@@ -15,7 +15,7 @@ from fastapi import HTTPException
 from pydantic import Field, model_validator
 from sqlalchemy import func, select
 
-from .db import Audit, Rehearsal, State, aware, now
+from .db import Audit, Event, Rehearsal, State, aware, now
 from .domain import StrictModel
 
 PER_TICKET = Decimal("5")
@@ -135,6 +135,8 @@ def create(db, actor, request: CreateRehearsal):
                         request_hash=request_hash, terms_hash=fingerprint(payload), payload=payload,
                         reserved_usd=debit, status="awaiting_paper_review")
         session.add(row)
+        session.add(Event(id=fingerprint({"paper_rehearsal": ident}), kind="paper_rehearsal",
+                          payload={"rehearsal_id": ident}))
         session.add(Audit(id=str(uuid4()), actor=actor,
                           action="paper_test_created", details={"rehearsal_id": ident}))
         return {**view(row, at), "replayed": False}
@@ -169,3 +171,4 @@ def fixture(asset):
         values.update(limit_price="0.01", multiplier=100, strike="100", right="call",
                       expiration=(now().astimezone(ZoneInfo("America/New_York")).date() + timedelta(days=30)))
     return TestTerms(**values)
+

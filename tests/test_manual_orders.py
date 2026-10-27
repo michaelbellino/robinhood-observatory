@@ -1,5 +1,4 @@
 """Real submission code, synthetic HTTP transport only. Never calls a live broker."""
-import asyncio
 import json
 from datetime import timedelta
 from uuid import uuid4
@@ -134,74 +133,63 @@ def transport(monkeypatch):
 
 
 @pytest.mark.parametrize("asset", ["equity", "option"])
-async def test_exact_order_and_repeated_click_send_once(configured, settings, vault, transport, asset):
+async def test_hosted_submission_and_repeated_click_never_send(configured, settings, vault, transport, asset):
     idea, body = ready(configured, settings, asset)
-    first = await manual.submit(configured, settings, vault, idea["id"], settings.owner_subject, body, transport.factory)
-    second = await manual.submit(configured, settings, vault, idea["id"], settings.owner_subject, body, transport.factory)
-    assert first["state"] == second["state"] == "acknowledged"
-    assert first["order"]["state"] == "queued"
-    assert len(transport.sent) == 1 and transport.sent[0][1]["ref_id"] == first["ref_id"]
-    assert "chain_symbol" not in transport.sent[0][1] and "underlying_type" not in transport.sent[0][1]
-    assert review.list_ideas(configured)[0]["sent_to_broker"]
-
-
-@pytest.mark.parametrize("failure", ["timeout", "broker_error", "wrong_terms"])
-async def test_unknown_outcome_never_resends(configured, settings, vault, transport, failure):
-    idea, body = ready(configured, settings)
-    transport.failure = failure
-    first = await manual.submit(configured, settings, vault, idea["id"], settings.owner_subject, body, transport.factory)
-    second = await manual.submit(configured, settings, vault, idea["id"], settings.owner_subject, body, transport.factory)
-    assert first["state"] == second["state"] == "unknown"
-    assert not first["retry_allowed"] and len(transport.sent) == 1
-    # A newly named proposal must not bypass the unresolved order lock.
+    for _ in range(2):
+        with pytest.raises(HTTPException) as failure:
+            await manual.submit(configured, settings, vault, idea["id"], settings.owner_subject, body, transport.factory)
+        assert failure.value.status_code == 410
+    assert not transport.sent
     with configured.session() as s:
+        assert s.get(OrderSubmission, idea["id"]) is None
+
+
+def test_existing_unknown_outcome_never_reserves_another_order(configured, settings):
+    idea, body = ready(configured, settings)
+    manual.reserve(configured, settings.owner_subject, idea["id"], body)
+    with configured.session() as s:
+        s.get(OrderSubmission, idea["id"]).state = "unknown"
         s.get(TradeIdea, idea["id"]).status = "submission_unknown"
+    reservation, existing = manual.reserve(configured, settings.owner_subject, idea["id"], body)
+    assert reservation is None and existing["state"] == "unknown" and not existing["retry_allowed"]
     other, other_body = ready(configured, settings)
     with pytest.raises(HTTPException, match="Another submission"):
         manual.reserve(configured, settings.owner_subject, other["id"], other_body)
 
 
 @pytest.mark.parametrize("change", ["stale", "generation", "paused", "alerts", "terms", "expiry"])
-async def test_changes_during_broker_wait_prevent_transmission(configured, settings, vault, transport, change):
+def test_changed_terms_and_state_prevent_legacy_reservation(configured, settings, change):
     idea, body = ready(configured, settings)
-    def mutate():
-        with configured.session() as s:
-            row, state = s.get(TradeIdea, idea["id"]), s.get(State, 1)
-            if change == "stale":
-                row.preview_at = now()-timedelta(minutes=2)
-            if change == "generation":
-                state.generation += 1
-            if change == "paused":
-                state.paused = True
-            if change == "alerts":
-                row.preview = {**row.preview, "order_checks": {"alert_type": "NEW_WARNING"}}
-            if change == "terms":
-                row.payload = {**row.payload, "rationale": "Changed during submission"}
-            if change == "expiry":
-                row.expires_at = now()-timedelta(seconds=1)
-    transport.before_send = mutate
-    outcome = await manual.submit(configured, settings, vault, idea["id"], settings.owner_subject, body, transport.factory)
-    assert outcome["state"] == "not_sent" and not transport.sent
+    with configured.session() as s:
+        row, state = s.get(TradeIdea, idea["id"]), s.get(State, 1)
+        if change == "stale":
+            row.preview_at = now()-timedelta(minutes=2)
+        if change == "generation":
+            state.generation += 1
+        if change == "paused":
+            state.paused = True
+        if change == "alerts":
+            row.preview = {**row.preview, "order_checks": {"alert_type": "NEW_WARNING"}}
+        if change == "terms":
+            row.payload = {**row.payload, "rationale": "Changed during submission"}
+        if change == "expiry":
+            row.expires_at = now()-timedelta(seconds=1)
+    with pytest.raises(HTTPException):
+        manual.reserve(configured, settings.owner_subject, idea["id"], body)
 
 
 async def test_competing_requests_and_preview_decision_are_blocked(configured, settings, vault, transport):
     idea, body = ready(configured, settings)
-    transport.response_gate = asyncio.Event()
-    task = asyncio.create_task(manual.submit(configured, settings, vault, idea["id"], settings.owner_subject, body, transport.factory))
-    for _ in range(100):
-        await asyncio.sleep(0)
-        if transport.sent:
-            break
-    assert transport.sent
-    other = await manual.submit(configured, settings, vault, idea["id"], settings.owner_subject, body, transport.factory)
-    assert other["state"] == "transmitting"
+    manual.reserve(configured, settings.owner_subject, idea["id"], body)
+    with configured.session() as s:
+        s.get(OrderSubmission, idea["id"]).state = "transmitting"
+    _, other = manual.reserve(configured, settings.owner_subject, idea["id"], body)
+    assert other["state"] == "transmitting" and not transport.sent
     with pytest.raises(HTTPException, match="Submission already started"):
         await review.preview(configured, settings, vault, idea["id"], settings.owner_subject)
     with pytest.raises(HTTPException, match="Submission already started"):
         review.decide(configured, settings.owner_subject, idea["id"], review.Decision(request_id=uuid4(),
                       terms_hash=body.terms_hash, decision="reject", acknowledge_manual_submission=True))
-    transport.response_gate.set()
-    assert (await task)["state"] == "acknowledged" and len(transport.sent) == 1
 
 
 def test_submit_requires_owner_session_and_exact_ack(client, configured, settings, control_headers, read_headers, monkeypatch):
@@ -220,8 +208,8 @@ def test_submit_requires_owner_session_and_exact_ack(client, configured, setting
     invalid = body.model_dump(mode="json") | {"acknowledge_real_order": False}
     assert client.post(path, headers=headers, json=invalid).status_code == 422
     assert not calls
-    assert client.post(path, headers=headers, json=body.model_dump(mode="json")).status_code == 200
-    assert len(calls) == 1
+    assert client.post(path, headers=headers, json=body.model_dump(mode="json")).status_code == 410
+    assert not calls
 
 
 async def test_placement_adapter_requires_exact_grant(transport):
@@ -272,5 +260,13 @@ async def test_metadata_cache_never_reuses_submission_grant(transport):
 async def test_account_eligibility_is_checked_live(configured, settings, vault, transport, changes):
     idea, body = ready(configured, settings, "option")
     transport.account_changes = changes
-    outcome = await manual.submit(configured, settings, vault, idea["id"], settings.owner_subject, body, transport.factory)
-    assert outcome["state"] == "not_sent" and not transport.sent
+    terms = review.Terms.model_validate(idea["payload"]["terms"])
+    broker = transport.factory("synthetic", "SYNTHETIC-ACCOUNT", 6)
+    try:
+        await broker.initialize()
+        with pytest.raises(HTTPException):
+            await manual.eligibility(broker, "SYNTHETIC-ACCOUNT", terms)
+        assert not transport.sent
+    finally:
+        await broker.close()
+

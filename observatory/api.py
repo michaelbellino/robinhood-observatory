@@ -306,7 +306,7 @@ def create_app(settings=None, database=None):
 
     @app.get("/api/trades")
     async def get_ideas():
-        return {"ideas": trade_review.list_ideas(db), "execution_route": "owner_dashboard",
+        return {"ideas": trade_review.list_ideas(db), "execution_route": "manual_robinhood",
                 "submissions": manual_orders.get_results(db),
                 "automatic_recommendations": "external_proposal_producer_only",
                 "analysis": status(db)["analysis"], "automatic_submission": False}
@@ -332,7 +332,7 @@ def create_app(settings=None, database=None):
     @app.post("/api/trades/{ident}/preview")
     async def preview_idea(ident: uuid.UUID):
         actor = owner_session()
-        return await trade_review.preview(db, settings, vault, ident, actor["sub"], manual_orders.OwnerOrderBroker)
+        return await trade_review.preview(db, settings, vault, ident, actor["sub"])
 
     @app.post("/api/trades/{ident}/decision")
     async def decide_idea(ident: uuid.UUID, body: trade_review.Decision):
@@ -340,8 +340,8 @@ def create_app(settings=None, database=None):
 
     @app.post("/api/trades/{ident}/submit")
     async def submit_owner_order(ident: uuid.UUID, body: manual_orders.SubmitOrder):
-        actor = owner_session()
-        return await manual_orders.submit(db, settings, vault, ident, actor["sub"], body)
+        owner_session()
+        raise HTTPException(410, "Hosted order submission is disabled. Place any order manually in Robinhood.")
 
     @app.post("/api/trades/{ident}/link/{order_id}")
     async def link_idea_order(ident: uuid.UUID, order_id: uuid.UUID):
@@ -608,4 +608,5 @@ def create_app(settings=None, database=None):
     for name in ["httpx", "httpcore", "authlib", "mcp", "sqlalchemy"]:
         logging.getLogger(name).setLevel(logging.CRITICAL)
     return app
+
 

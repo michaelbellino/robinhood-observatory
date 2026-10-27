@@ -153,7 +153,8 @@ def revise(db, actor, ident, body):
                 raise HTTPException(409, "Revision request ID conflict")
             return serialize(old)
         sub = s.get(OrderSubmission, row.id)
-        if (row.status not in {"awaiting_review", "needs_review"} or row.broker_order_id
+        effective_status = serialize(row, state=state)["status"]
+        if (effective_status not in {"awaiting_review", "needs_review", "expired"} or row.broker_order_id
                 or (sub and sub.state != "not_sent") or row.terms_hash != body.terms_hash):
             raise HTTPException(409, "Proposal changed or submission started; refresh its status")
         if not state.account_verified or not state.account_cipher:
@@ -186,26 +187,27 @@ class Decision(StrictModel):
     acknowledge_manual_submission: Literal[True]
 
 
-def serialize(row, snapshot=None):
+def serialize(row, snapshot=None, state=None):
     status = row.status
     if status in {"awaiting_review", "ready_for_manual_submission"} and not row.broker_order_id and aware(row.expires_at) <= now():
         status = "expired"
+    if status == "ready_for_manual_submission" and (
+        state is None or not state.account_verified or row.account_cipher != state.account_cipher
+        or row.preview_generation != state.generation or not row.preview_at
+        or aware(row.preview_at) < now()-timedelta(seconds=60)
+        or not row.preview or not fresh_preview(row.preview, row.payload["terms"]["asset"])
+    ):
+        status = "needs_review"
     data = {"id": row.id, "created_at": aware(row.created_at), "expires_at": aware(row.expires_at),
             "account": row.account_label, "account_bound": bool(row.account_cipher),
             "version": row.version or 1, "parent_id": row.parent_id,
             "status": status, "terms_hash": row.terms_hash, "payload": row.payload,
             "preview": row.preview, "preview_at": aware(row.preview_at),
             "preview_hash": fingerprint(row.preview) if row.preview else None,
-            "sent_to_broker": (None if row.status in {"submission_in_progress", "submission_unknown"}
+            "sent_to_broker": (None if row.status in {"ready_for_manual_submission", "submission_in_progress", "submission_unknown"}
                                else row.status == "submitted_by_owner"),
-            "execution_route": "owner_dashboard", "broker_order": None}
-    if row.broker_order_id and snapshot:
-        orders = snapshot.payload.get(f'{row.payload["terms"]["asset"]}_orders', [])
-        order = next((x for x in orders if x.get("id") == row.broker_order_id), None)
-        if order:
-            data["broker_order"] = {"id": order["id"], "state": order["state"],
-                                    "filled_quantity": order.get("processed_quantity", order.get("cumulative_quantity")),
-                                    "observed_at": aware(snapshot.observed_at)}
+            "execution_route": "manual_robinhood", "broker_order": None}
+    # Historical snapshots lack account provenance; never infer a matching order.
     return data
 
 
@@ -213,7 +215,8 @@ def list_ideas(db, limit=30):
     with db.session() as s:
         snapshot = s.scalar(select(Snapshot).where(Snapshot.source == "robinhood_mcp_live")
                             .order_by(Snapshot.observed_at.desc()))
-        return [serialize(x, snapshot) for x in s.scalars(select(TradeIdea).order_by(TradeIdea.created_at.desc())
+        state = s.get(State, 1)
+        return [serialize(x, snapshot, state) for x in s.scalars(select(TradeIdea).order_by(TradeIdea.created_at.desc())
                                                         .limit(min(max(limit, 1), 100)))]
 
 
@@ -243,7 +246,7 @@ def create(db, actor, body):
         s.add(row)
         s.add(Event(id=fingerprint({"idea": row.id}), kind="trade_idea", payload={"idea_id": row.id}))
         s.add(Audit(id=str(uuid4()), actor=actor, action="trade_idea_created", details={"idea_id": row.id}))
-        return serialize(row)
+        return serialize(row, state=state)
 
 
 def mask_accounts(value):
@@ -394,7 +397,7 @@ async def preview(db, settings, vault, ident, actor, broker_factory=PreviewBroke
 def decide(db, actor, ident, body):
     ident = str(ident)
     with db.session() as s:
-        s.scalar(select(State).where(State.id == 1).with_for_update())
+        state = s.scalar(select(State).where(State.id == 1).with_for_update())
         row = s.get(TradeIdea, ident)
         if not row:
             raise HTTPException(404, "Idea not found")
@@ -406,27 +409,30 @@ def decide(db, actor, ident, body):
         if audit:
             if audit.actor != actor or audit.details != details or audit.action != "trade_idea_decision":
                 raise HTTPException(409, "Decision request ID conflict")
-            return serialize(row)
+            return serialize(row, state=state)
         if row.terms_hash != body.terms_hash or fingerprint(row.payload) != row.terms_hash:
             raise HTTPException(409, "Terms changed; review again")
         if row.status != "awaiting_review" or aware(row.expires_at) <= now():
             raise HTTPException(409, "Idea no longer awaiting review")
         if body.decision == "prepare_in_robinhood":
+            if (not state.account_verified or not row.account_cipher or row.account_cipher != state.account_cipher
+                    or row.preview_generation != state.generation):
+                raise HTTPException(409, "Selected account or connection changed; refresh and review again")
             if (not row.preview or not row.preview_at or aware(row.preview_at) < now()-timedelta(seconds=60)
                     or body.preview_hash != fingerprint(row.preview)):
                 raise HTTPException(409, "Refresh the broker preview and review its current terms first")
-            if (row.payload["terms"]["type"] in {"market", "stop_market"}
-                    and not fresh_preview(row.preview, row.payload["terms"]["asset"])):
+            if not fresh_preview(row.preview, row.payload["terms"]["asset"]):
                 raise HTTPException(409, "Broker quote is stale or unavailable; refresh during the applicable session")
             row.status = "ready_for_manual_submission"
         else:
             row.status = "rejected"
         s.add(Audit(id=str(body.request_id), actor=actor, action="trade_idea_decision", details=details))
-        return serialize(row)
+        return serialize(row, state=state)
 
 
 def link_order(db, actor, ident, order_id):
     """Link only an observed, matching broker order; a client claim is never fill evidence."""
+    raise HTTPException(409, "Broker order linking is unavailable until account provenance is verified. Check status in Robinhood.")
     with db.session() as s:
         row = s.scalar(select(TradeIdea).where(TradeIdea.id == str(ident)).with_for_update())
         snap = s.scalar(select(Snapshot).where(Snapshot.source == "robinhood_mcp_live").order_by(Snapshot.observed_at.desc()))
@@ -448,4 +454,5 @@ def link_order(db, actor, ident, order_id):
         row.broker_order_id = str(order_id)
         s.add(Audit(id=str(uuid4()), actor=actor, action="broker_order_linked", details={"idea_id": str(ident), "order_id": str(order_id)}))
         return serialize(row, snap)
+
 

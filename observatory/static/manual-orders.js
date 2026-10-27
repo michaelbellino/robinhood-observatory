@@ -45,49 +45,8 @@ const OwnerOrders = Object.freeze({
         return box;
       }
     }
-    if (idea.status !== "awaiting_review" || !idea.preview || idea.account_bound === false) return box;
-    const t = idea.payload.terms;
-    const hasAlerts = Object.keys(idea.preview.order_checks || {}).length > 0;
-    let alertCheck;
-    if (hasAlerts) {
-      text("Broker alerts are shown above. Acknowledging them does not override broker eligibility, funds, or collateral requirements; the broker may reject the order.");
-      const alertLabel = document.createElement("label"); alertLabel.className = "acknowledge";
-      alertCheck = document.createElement("input"); alertCheck.type = "checkbox";
-      const alertWords = document.createElement("span"); alertWords.textContent = "I have read and acknowledge these exact broker alerts.";
-      alertLabel.append(alertCheck, alertWords); box.append(alertLabel);
-    }
-    const label = document.createElement("label"), check = document.createElement("input"), words = document.createElement("span");
-    check.type = "checkbox";
-    label.className = "acknowledge";
-    words.textContent = "I reviewed this exact order, the current quote, fees, and risks. My next click submits a real order using my brokerage account.";
-    label.append(check, words);
-    const button = document.createElement("button");
-    button.className = "submit-order";
-    button.textContent = `Approve and submit ${t.asset === "equity" ? "stock" : "options"} order`;
-    button.disabled = true;
-    const enable = () => { button.disabled = !check.checked || (hasAlerts && !alertCheck.checked); };
-    check.onchange = enable;
-    if (alertCheck) alertCheck.onchange = enable;
-    button.onclick = async () => {
-      if (button.disabled || !check.checked || (hasAlerts && !alertCheck.checked)) return;
-      button.disabled = check.disabled = true;
-      if (alertCheck) alertCheck.disabled = true;
-      notice("Checking this exact order and submitting your request. Wait for the broker response; do not submit again elsewhere.");
-      try {
-        const response = await api(`/api/trades/${idea.id}/submit`, {
-          version: idea.version || 1, terms_hash: idea.terms_hash, preview_hash: idea.preview_hash, acknowledge_real_order: true,
-          acknowledge_broker_alerts: !!alertCheck?.checked
-        });
-        await reload();
-        notice(response.message || "Submission is being processed. Refresh to check its status.");
-      } catch (error) {
-        notice(`${error.message} Refresh submission status before taking another action.`);
-        // Never restore the old submit control on an ambiguous browser failure.
-        try { await reload(); } catch (_) { /* Keep disabled until a successful refresh. */ }
-      }
-    };
-    box.append(label, button);
     return box;
   }
 });
+
 
