@@ -30,6 +30,7 @@ from .security import Vault, bearer_principal, principal, require_control
 from .service import status, history, change_pause, start_observations
 from .market import market_status
 from .settings import Settings
+from .release_health import release_evidence
 from . import rehearsal, assistant, trade_review, push, manual_orders, mandate, research
 
 STATIC = Path(__file__).parent / "static"
@@ -261,6 +262,10 @@ def create_app(settings=None, database=None):
     @app.get("/health/live")
     async def liveness():
         return {"process": "alive"}  # Deliberately says nothing about broker/worker progress.
+
+    @app.get("/health/release")
+    def release_health():
+        return release_evidence(db)
 
     @app.get("/")
     async def dashboard():
