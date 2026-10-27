@@ -86,6 +86,23 @@ def test_manual_review_records_exact_terms_without_submission(configured, settin
         review.revise(configured, settings.owner_subject, idea["id"], revision(idea, quantity="2"))
 
 
+@pytest.mark.parametrize("stale_cause", ["quote", "generation"])
+def test_stale_manual_review_requires_new_version(configured, settings, stale_cause):
+    idea, approval = ready(configured, settings)
+    review.decide(configured, settings.owner_subject, idea["id"], decision(idea, approval))
+    with configured.session() as s:
+        if stale_cause == "quote":
+            s.get(TradeIdea, idea["id"]).preview_at = now()-timedelta(minutes=2)
+        else:
+            s.get(State, 1).generation += 1
+    assert review.list_ideas(configured)[0]["status"] == "needs_review"
+    replacement = review.revise(configured, settings.owner_subject, idea["id"], revision(idea, quantity="2"))
+    assert replacement["status"] == "awaiting_review" and replacement["version"] == 2
+    assert replacement["preview"] is None
+    with configured.session() as s:
+        assert s.get(TradeIdea, idea["id"]).status == "superseded"
+
+
 @pytest.mark.parametrize("state,expected", [("partially_filled", "partially_filled"), ("filled", "filled"),
     ("rejected", "rejected"), ("cancelled", "cancelled"), ("expired", "expired"),
     ("partially_filled_rest_cancelled", "partially_filled_then_cancelled"),

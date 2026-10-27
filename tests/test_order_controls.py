@@ -78,6 +78,24 @@ async def test_eligibility_read_rejects_broker_restrictions(transport, change):
         await broker.close()
 
 
+@pytest.mark.parametrize("hours", ["regular_curb_hours", "regular_curb_overnight_hours"])
+@pytest.mark.parametrize("underlyings", [None, []])
+async def test_index_sessions_require_broker_eligibility(transport, hours, underlyings):
+    terms = review.Terms.model_validate(options(underlying_type="index", market_hours=hours, time_in_force="gtc"))
+    transport.chain_underlyings = underlyings
+    transport.extended_chain = False
+    broker = transport.factory("synthetic", "SYNTHETIC-ACCOUNT", 6)
+    try:
+        await broker.initialize()
+        with pytest.raises(HTTPException):
+            await manual.eligibility(broker, "SYNTHETIC-ACCOUNT", terms)
+        transport.extended_chain = True
+        await manual.eligibility(broker, "SYNTHETIC-ACCOUNT", terms)
+        assert not transport.sent
+    finally:
+        await broker.close()
+
+
 @pytest.mark.parametrize("account", [{"option_level": "option_level_2"}, {"type": "cash"}, {"brokerage_account_type": "ira_roth"}])
 async def test_spread_eligibility_requires_broker_level_and_account(transport, account):
     transport.account_changes = account
@@ -132,6 +150,22 @@ def test_owner_ticket_has_no_research_cap_or_required_rationale(client, configur
     for index in range(31):
         body = {"request_id": str(uuid4()), "terms": stock(limit_price=str(Decimal("2")+index))}
         assert client.post(path, headers=headers, json=body).status_code == 200
+
+
+@pytest.mark.parametrize("order_type", ["market", "stop_limit", "stop_market"])
+def test_single_leg_option_type_preserves_price_and_trigger(order_type):
+    terms = options()
+    terms["type"] = order_type
+    if order_type != "stop_limit":
+        terms["limit_price"] = None
+    if order_type.startswith("stop_"):
+        terms["stop_price"] = "0.08"
+    if order_type == "stop_market":
+        terms["legs"][0].update(side="sell", position_effect="close")
+    args = review.Terms.model_validate(terms).broker_arguments("SYNTHETIC-ACCOUNT")
+    assert args["type"] == order_type
+    assert ("price" in args) == (order_type == "stop_limit")
+    assert ("stop_price" in args) == order_type.startswith("stop_")
 
 
 def test_owner_controls_render_exact_terms_and_have_no_submission_action():
