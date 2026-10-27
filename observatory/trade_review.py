@@ -313,6 +313,7 @@ def create(db, actor, body, *, owner_directed=False):
             if not gate["allowed"]:
                 raise HTTPException(409, "Research proposal blocked: " + ", ".join(gate["reasons"]))
             payload["mandate_id"], payload["snapshot_id"] = gate["mandate_id"], gate["snapshot_id"]
+            payload["risk_assessment"] = gate["risk"]
         # Duplicate proposals should not cause repeated alerts during the review window.
         terms_hash = fingerprint(payload)
         duplicate = s.scalar(select(TradeIdea).where(TradeIdea.terms_hash == terms_hash,

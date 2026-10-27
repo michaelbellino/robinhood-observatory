@@ -12,8 +12,8 @@
 <fieldset class="full-width"><legend>Allowed research strategies</legend><label><input type="checkbox" name="mandate-strategy" value="defined_risk_credit_spread"> Defined-risk credit spreads</label><label><input type="checkbox" name="mandate-strategy" value="covered_call"> Covered calls</label><label><input type="checkbox" name="mandate-strategy" value="cash_secured_put"> Cash-secured puts</label><label><input type="checkbox" name="mandate-strategy" value="long_call"> Long calls</label><label><input type="checkbox" name="mandate-strategy" value="long_put"> Long puts</label></fieldset>
 <label>Proposed starting budget ($)<input id="mandate-budget" type="number" min="0.01" step="0.01" value="50.00" required><span class="small muted">Editable starting point. Set risk and collateral limits separately.</span></label>
 <label>Maximum loss per trade ($)<input id="mandate-per-risk" type="number" min="0.01" step="0.01" required></label>
-<label>Maximum aggregate loss ($)<input id="mandate-aggregate" type="number" min="0.01" step="0.01" required></label>
-<label>Maximum collateral committed ($)<input id="mandate-collateral" type="number" min="0.01" step="0.01" required></label>
+<label>Maximum total remaining portfolio downside ($)<input id="mandate-aggregate" type="number" min="0.01" step="0.01" required><span class="small muted">Conservative downside of existing holdings plus the proposal, not just this starting budget.</span></label>
+<label>Maximum collateral per proposal ($)<input id="mandate-collateral" type="number" min="0.01" step="0.01" required></label>
 <label>Minimum holding days<input id="mandate-min-days" type="number" min="0" max="365" step="1" required></label>
 <label>Maximum holding days<input id="mandate-max-days" type="number" min="1" max="365" step="1" required></label>
 <label>Notifications<select id="mandate-notifications"><option value="material_only">Material opportunities only</option><option value="hourly">At most hourly</option><option value="twice_daily">Twice daily</option><option value="daily">Daily</option></select></label>

@@ -32,4 +32,15 @@ assert.equal(flatten(rendered).filter(x=>x.tagName==='button'||x.tagName==='inpu
 const unknown=controls.render(idea,{state:'unknown',retry_allowed:false},async()=>{throw new Error('Must not call');},async()=>{},()=>{});
 assert.equal(flatten(unknown).filter(x=>x.tagName==='button'||x.tagName==='input').length,0);
 assert.match(flatten(unknown).map(x=>x.textContent).join(' '),/Check this order in Robinhood/);
+vm.runInContext(readFileSync('observatory/static/review-workflow.js','utf8'),context);
+const review=vm.runInContext('ReviewWorkflow',context);
+const research={evidence_mode:'paper',thesis:'Synthetic catalyst thesis',counterargument:'Synthetic contrary evidence',no_trade_alternative:'Wait for verified pricing',fees_usd:'1',slippage_usd:'0.5',execution_assumptions:'Conservative synthetic bid and ask',legs:[{contract:{id:'synthetic-contract'},quote:{bid:'0.4',ask:'0.6',received_at:'2030-01-01T12:00:00Z'}}],exits:[{purpose:'take_profit',condition:'Buy back at the target',basis:'option_premium',threshold:'0.1',action:'buy_to_close',mechanism:'alert_requires_owner_action',justification:'Synthetic hypothesis to test',failure_modes:'Owner action may be delayed'}],evidence:[{publisher:'Synthetic source',title:'Test evidence',published_at:'2030-01-01T11:00:00Z',retrieved_at:'2030-01-01T12:00:00Z',retrieval_status:'unverified',url:'https://example.test/source',claim:'Synthetic evidence only'}]};
+const evidence=review.evidence({...idea,created_at:'2030-01-01T12:00:00Z',preview:null,payload:{terms,research_candidate:research,risk_assessment:{risk_basis:'synthetic',assignment_warning:'Assignment can create stock exposure',calculations:{payoff:{max_gain_usd:'48.5',max_loss_usd:'51.5',collateral_required_usd:'51.5',premium_cashflow_usd:'50',cashflow:'credit',breakeven_at_expiration:'99.5'}}}}});
+const evidenceText=flatten(evidence).map(x=>x.textContent).join(' ');
+assert.match(evidenceText,/Counterargument: Synthetic contrary evidence/);
+assert.match(evidenceText,/Maximum loss at proposed entry: \$51.5/);
+assert.match(evidenceText,/Credit received, not realized profit: \$50/);
+assert.match(evidenceText,/basis option_premium/);
+assert.match(evidenceText,/No trade alternative: Wait for verified pricing/);
+assert.match(evidenceText,/IV unavailable/);
 console.log('Owner controls: exact summaries, no submission action, ambiguous result warning passed.');

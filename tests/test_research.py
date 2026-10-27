@@ -365,3 +365,76 @@ async def test_worker_source_cycle_persists_no_trade_and_respects_cooldown(confi
         row = session.scalar(select(Analysis).where(Analysis.strategy_version == VERSION))
         assert row.payload["outcome"] == "no_trade" and row.payload["live_order_count"] == 0
         assert row.payload["gate"]["allowed"] is False
+
+
+def publish_fixture():
+    """Current-time synthetic candidate with broker-shaped UUIDs, never a live order."""
+    from observatory.db import now
+    at = now()
+    data = candidate().model_dump()
+    data.update(created_at=at, expires_at=at+timedelta(minutes=15), catalyst_at=at+timedelta(days=1))
+    data["evidence"][0].update(published_at=at-timedelta(hours=1), retrieved_at=at)
+    ident = str(uuid4())
+    data["legs"][0]["contract"].update(id=ident, observed_at=at, expiration=(at+timedelta(days=7)).date())
+    data["legs"][0]["quote"].update(instrument_id=ident, received_at=at, quoted_at=at, bid_at=at, ask_at=at)
+    data["exits"][2]["deadline"] = at+timedelta(days=2)
+    return ResearchCandidate.model_validate(data)
+
+
+def publication_report(value, outcome="proposal_for_manual_review"):
+    return {"leads": [{"source_id": "source-a", "retrieval_status": "verified"}],
+            "comparison": {"results": [{"outcome": outcome, "candidate": value.model_dump(mode="json")}]}}
+
+
+@pytest.mark.parametrize("report", [{}, {"comparison": {"results": []}}])
+def test_publication_no_candidates_creates_no_ideas_or_notifications(configured, report):
+    from observatory.research import publish_assessed_candidates
+    from observatory.db import TradeIdea, Event
+    from sqlalchemy import select, func
+    assert publish_assessed_candidates(configured, report) == []
+    with configured.session() as session:
+        assert session.scalar(select(func.count()).select_from(TradeIdea)) == 0
+        assert session.scalar(select(func.count()).select_from(Event)) == 0
+
+
+def test_no_trade_report_never_calls_publication(configured, monkeypatch):
+    from observatory.research import publish_assessed_candidates
+    from observatory import trade_review
+    def forbidden(*args, **kwargs):
+        raise AssertionError("No-trade assessment must never call create")
+    monkeypatch.setattr(trade_review, "create", forbidden)
+    assert publish_assessed_candidates(configured, publication_report(publish_fixture(), "no_trade")) == []
+
+
+def test_publisher_cannot_bypass_missing_mandate_or_worker_evidence(configured, monkeypatch):
+    from observatory.research import publish_assessed_candidates
+    from observatory import mandate
+    value = publish_fixture()
+    report = publication_report(value)
+    assert publish_assessed_candidates(configured, report) == []  # Real gate denies unconfirmed mandate.
+    monkeypatch.setattr(mandate, "live_proposal_gate", lambda *a: {
+        "allowed": True, "mandate_id": "synthetic-mandate", "snapshot_id": "synthetic-snapshot", "risk": {}})
+    assert publish_assessed_candidates(configured, report) == []  # Passing a dict is not persisted worker proof.
+
+
+def test_persisted_assessment_revalidates_and_publishes_once(configured, monkeypatch):
+    from observatory.research import publish_assessed_candidates, VERSION
+    from observatory import mandate
+    from observatory.db import Analysis, TradeIdea, Event
+    from sqlalchemy import select, func
+    value = publish_fixture()
+    report = publication_report(value)
+    gate = {"allowed": True, "mandate_id": "synthetic-mandate", "snapshot_id": "synthetic-snapshot", "risk": {}}
+    monkeypatch.setattr(mandate, "live_proposal_gate", lambda *a: gate)
+    with configured.session() as session:
+        session.add(Analysis(id=str(uuid4()), snapshot_id="synthetic-snapshot", payload=report,
+                             model="synthetic-test", strategy_version=VERSION))
+    assert publish_assessed_candidates(configured, report) == [str(value.id)]
+    # A restart/retry sees the same candidate and never adds another proposal/notification.
+    assert publish_assessed_candidates(configured, report) == [str(value.id)]
+    with configured.session() as session:
+        assert session.scalar(select(func.count()).select_from(TradeIdea)) == 1
+        assert session.scalar(select(func.count()).select_from(Event).where(Event.kind == "trade_idea")) == 1
+        row = session.get(TradeIdea, str(value.id))
+        assert row.broker_order_id is None and row.status == "awaiting_review"
+        assert row.payload["mandate_id"] == "synthetic-mandate"

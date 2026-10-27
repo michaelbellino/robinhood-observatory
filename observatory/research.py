@@ -478,7 +478,7 @@ def publish_assessed_candidates(db, report):
             body = trade_review.NewIdea(request_id=candidate.id, terms=trade_review.candidate_terms(candidate),
                                         rationale=candidate.thesis[:2000], risks=candidate.assignment_and_exercise[:2000],
                                         methodology=VERSION, sources=[str(x.url) for x in candidate.evidence][:8],
-                                        valid_for_seconds=min(remaining, 604800), research_candidate=candidate)
+                                        valid_for_seconds=604800, research_candidate=candidate)
             idea = trade_review.create(db, "hosted-research-worker", body)
             published.append(idea["id"])
         except (HTTPException, ValueError, TypeError, KeyError, ArithmeticError):
