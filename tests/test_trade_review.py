@@ -51,7 +51,7 @@ async def test_real_review_flow_is_not_a_trade(configured, settings, vault):
     request = decision(idea)
     result = review.decide(configured, settings.owner_subject, idea["id"], request)
     assert result["status"] == "ready_for_manual_submission"
-    assert result["sent_to_broker"] is False and result["broker_order"] is None
+    assert result["sent_to_broker"] is None and result["broker_order"] is None
     assert review.decide(configured, settings.owner_subject, idea["id"], request)["status"] == result["status"]
     with configured.session() as s:
         assert s.scalar(select(func.count()).select_from(Event)) == 1

@@ -14,6 +14,7 @@ self.addEventListener("notificationclick",event=>{
  event.notification.close();
  const proposed=event.notification.data?.url||"/trades";
  const target=new URL(proposed,self.location.origin);
- const url=target.origin===self.location.origin&&target.pathname==="/trades"?target.href:new URL("/trades",self.location.origin).href;
+ const url=target.origin===self.location.origin&&["/trades","/workbench"].includes(target.pathname)?target.href:new URL("/trades",self.location.origin).href;
  event.waitUntil(self.clients.openWindow(url));
 });
+
