@@ -1,6 +1,35 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#183333"><title>Trade review · Observatory</title><link rel="manifest" href="/static/manifest.webmanifest"><link rel="stylesheet" href="/static/style.css"><link rel="stylesheet" href="/static/workbench.css"><link rel="stylesheet" href="/static/trades.css"><script src="/static/review-workflow.js" defer></script><script src="/static/manual-orders.js" defer></script><script src="/static/trades.js" defer></script></head><body>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#183333"><title>Trade review · Observatory</title><link rel="manifest" href="/static/manifest.webmanifest"><link rel="stylesheet" href="/static/style.css"><link rel="stylesheet" href="/static/workbench.css"><link rel="stylesheet" href="/static/trades.css"><script src="/static/review-workflow.js" defer></script><script src="/static/manual-orders.js" defer></script><script src="/static/trades.js" defer></script><script src="/static/mandate.js" defer></script><script src="/static/research-sources.js" defer></script></head><body>
 <header><a class="brand" href="/">Observatory</a><nav><a href="/">Account</a><a href="/workbench">Paper tests</a><a id="signin" href="/auth/login">Sign in</a></nav></header><main>
 <section class="workbench-intro"><h1>Trade review</h1><p class="muted">Review a proposal and broker preview, then enter any order yourself in Robinhood. Observatory does not submit orders.</p><p id="notice" class="notice" role="status">Sign in to load your review inbox.</p></section>
+<section class="panel"><div class="panel-title"><h2>Research limits</h2><span id="mandate-state">Loading…</span></div>
+<p class="small">Set the limits for recommendations. They do not authorize an order. Recommendations remain unavailable until portfolio coverage and risk checks are verified.</p><p id="mandate-detail" class="small muted"></p>
+<details><summary>Review or change limits</summary><form id="mandate-form" class="order-form">
+<label>Selected account last four characters<input id="mandate-account" pattern="[A-Za-z0-9]{4}" maxlength="4" required autocomplete="off"></label>
+<label>Research universe<select id="mandate-universe"><option value="us_listed_equities_etfs">US-listed stocks and ETFs</option><option value="selected_symbols">Only selected symbols</option></select></label>
+<label>Selected symbols, comma separated<input id="mandate-symbols" placeholder="If restricting the universe"></label>
+<label>Excluded symbols, comma separated<input id="mandate-excluded" placeholder="Leave empty for none"></label>
+<label class="full-width">Other exclusions, one per line<textarea id="mandate-exclusions" rows="2" placeholder="Leave empty for none"></textarea></label>
+<fieldset class="full-width"><legend>Allowed research strategies</legend><label><input type="checkbox" name="mandate-strategy" value="defined_risk_credit_spread"> Defined-risk credit spreads</label><label><input type="checkbox" name="mandate-strategy" value="covered_call"> Covered calls</label><label><input type="checkbox" name="mandate-strategy" value="cash_secured_put"> Cash-secured puts</label><label><input type="checkbox" name="mandate-strategy" value="long_call"> Long calls</label><label><input type="checkbox" name="mandate-strategy" value="long_put"> Long puts</label></fieldset>
+<label>Proposed starting budget ($)<input id="mandate-budget" type="number" min="0.01" step="0.01" value="50.00" required><span class="small muted">Editable starting point. Set risk and collateral limits separately.</span></label>
+<label>Maximum loss per trade ($)<input id="mandate-per-risk" type="number" min="0.01" step="0.01" required></label>
+<label>Maximum aggregate loss ($)<input id="mandate-aggregate" type="number" min="0.01" step="0.01" required></label>
+<label>Maximum collateral committed ($)<input id="mandate-collateral" type="number" min="0.01" step="0.01" required></label>
+<label>Minimum holding days<input id="mandate-min-days" type="number" min="0" max="365" step="1" required></label>
+<label>Maximum holding days<input id="mandate-max-days" type="number" min="1" max="365" step="1" required></label>
+<label>Notifications<select id="mandate-notifications"><option value="material_only">Material opportunities only</option><option value="hourly">At most hourly</option><option value="twice_daily">Twice daily</option><option value="daily">Daily</option></select></label>
+<label>Limits expire at<input id="mandate-expires" type="datetime-local" required></label>
+<label class="full-width"><input id="mandate-ack" type="checkbox" required> I confirm these research limits for the selected account. I will review and place any order myself.</label>
+<button id="mandate-save" disabled>Review and confirm limits</button><button id="mandate-disable" type="button" disabled>Disable limits</button></form></details></section>
+<section class="panel"><div class="panel-title"><h2>Research sources</h2><span id="research-source-status">Loading…</span></div>
+<p class="small">Track recent SEC filing activity for up to five companies. These are catalyst leads; a filing alone is not a trade recommendation.</p>
+<details><summary>Configure filing sources</summary><form id="research-source-form" class="order-form">
+<p class="small full-width">Enter the ticker and the company's SEC CIK identifier. Sources are fetched only from SEC's public data service. No paid subscription is added.</p>
+<div id="research-source-rows" class="full-width"></div><button id="research-source-add" type="button" disabled>Add company</button>
+<label class="full-width">SEC contact email<input id="research-source-contact" type="email" maxlength="150" autocomplete="email" required placeholder="Contact for SEC data requests"><span class="small muted">SEC asks applications to identify a contact. This email is sent to SEC with requests and is never shown in notification previews. Re-enter it to change source settings.</span></label>
+<label class="full-width"><input id="research-source-generate" type="checkbox"> Draft candidate ideas using the existing model and existing spending caps</label>
+<p class="small full-width">Drafting stays off unless you select it. An exhausted or unset model budget produces no draft. Portfolio and mandate checks still apply, and no order is placed.</p>
+<button id="research-source-save" disabled>Save research sources</button><p id="research-source-notice" class="small full-width" role="status"></p>
+</form></details></section>
 <section class="panel"><h2>New stock order</h2><p class="small">Saving creates a review ticket. It does not buy or sell anything.</p>
 <form id="stock-form" class="order-form"><label>Symbol<input id="stock-symbol" required maxlength="12" pattern="[A-Za-z][A-Za-z0-9.\-]{0,11}" autocapitalize="characters" autocomplete="off" placeholder="Ticker"></label>
 <label>Side<select id="stock-side"><option value="buy">Buy</option><option value="sell">Sell held shares</option></select></label>

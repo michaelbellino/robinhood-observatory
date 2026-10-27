@@ -127,7 +127,8 @@ class LocalEnrollment:
                 },
             )
             state.paused, state.account_verified, state.status = True, False, "select_account"
-            state.account_cipher, state.account_label = None, None
+            # Credential enrollment cannot erase the immutable account binding or mix histories.
+            # A different account still requires an isolated database at selection.
             state.generation += 1
             payload["completed"] = True
             row.payload_cipher = self.vault.encrypt(payload)
@@ -140,3 +141,4 @@ class LocalEnrollment:
                 )
             )
         return {"connected": True, "monitoring": "paused", "account_selection_required": True}
+

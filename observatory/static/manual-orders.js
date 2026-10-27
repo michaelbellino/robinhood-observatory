@@ -1,6 +1,23 @@
 "use strict";
-// This UI is the only submission entry point. No timer or notification calls it.
+// Read-only order details. Final placement happens manually in Robinhood.
 const OwnerOrders = Object.freeze({
+  copyText(t) {
+    const lines = ["Robinhood manual-entry ticket — no order submitted"];
+    if (t.asset === "equity") {
+      lines.push(`${t.side.toUpperCase()} ${t.dollar_amount ? "$" + t.dollar_amount + " of " + t.symbol : t.quantity + " " + t.symbol + " shares"}`);
+    } else {
+      for (const leg of t.legs) {
+        lines.push(`${leg.side.toUpperCase()} TO ${leg.position_effect.toUpperCase()} ${t.quantity * leg.ratio_quantity} × ${t.symbol} ${leg.expiration} $${leg.strike} ${leg.right.toUpperCase()} (multiplier ${leg.multiplier})`);
+      }
+    }
+    lines.push(`Order type: ${(t.type || "limit").replaceAll("_", " ")}`);
+    if (t.limit_price) lines.push(`Limit: $${t.limit_price}${t.direction ? " net " + t.direction : " per share"}`);
+    if (t.stop_price) lines.push(`Stop: $${t.stop_price} (${t.asset === "option" ? "option contract price" : "underlying share price"}; verify trigger basis in Robinhood)`);
+    lines.push(`Session: ${t.market_hours.replaceAll("_", " ")}`);
+    lines.push(`Time in force: ${t.time_in_force === "gtc" ? "good till canceled" : "good for day"}`);
+    lines.push("Verify the account, exact contracts, current quotes, fees and broker alerts in Robinhood before placing an order.");
+    return lines.join("\n");
+  },
   summary(t) {
     const box = document.createElement("div");
     box.className = "order-summary";

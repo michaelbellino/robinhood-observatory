@@ -11,7 +11,7 @@ function render(idea){const card=node("article"),p=idea.payload,t=p.terms,submis
  const risks=node("p",p.risks);risks.className="risk";card.append(risks,node("p",`Methodology: ${p.methodology}`),node("p",`Sources: ${p.sources.join(" · ")}`));
  card.append(ReviewWorkflow.evidence(idea),OwnerOrders.summary(t));
  if(["awaiting_review","needs_review","expired"].includes(idea.status)&&(!submission||submission.retry_allowed)) card.append(ReviewWorkflow.editor(idea,api,load,notice));
- if(submission) controlsForStatus(card,idea);
+ if(submission||idea.broker_order_id) controlsForStatus(card,idea);
  if(idea.preview){card.append(node("h4",`Broker preview · ${stamp(idea.preview_at)}`));if(idea.preview.market_data_disclosure){const disclosure=node("p",idea.preview.market_data_disclosure);disclosure.className="broker-disclosure";card.append(disclosure);}card.append(node("p","Review all broker alerts, quotes, fees and collateral below. Collateral describes the change against your existing positions and working orders."),node("pre",JSON.stringify(idea.preview,null,2)));}
  const controls=node("div");controls.className="review-controls";
  if(idea.status==="awaiting_review"&&(!submission||submission.retry_allowed)){
@@ -22,8 +22,12 @@ function render(idea){const card=node("article"),p=idea.payload,t=p.terms,submis
  if(idea.status==="ready_for_manual_submission"){
   card.append(node("p","No order has been submitted by Observatory. Verify the current market and exact contract details in Robinhood before submitting. This link opens Robinhood; it does not prefill the order."));
   const link=node("a","Open Robinhood");link.href="https://robinhood.com/";link.target="_blank";link.rel="noopener noreferrer";controls.append(link);
-  controls.append(action("Copy exact order terms",async()=>{await navigator.clipboard.writeText(JSON.stringify(t,null,2));notice("Terms copied. Verify them in Robinhood.");}));
-  card.append(node("p","Order linking is unavailable until account provenance is verified. Check order status in Robinhood."));
+  controls.append(action("Copy exact order terms",async()=>{await navigator.clipboard.writeText(OwnerOrders.copyText(t));notice("Manual-entry ticket copied. Verify it in Robinhood; no order was submitted.");}));
+ }
+ if(idea.manual_link_allowed&&!idea.broker_order_id){
+  const orderId=node("input");orderId.placeholder="Robinhood order UUID after manual placement";orderId.setAttribute("aria-label","Robinhood order UUID");
+  card.append(node("p","After placing an order yourself, copy its order ID from Robinhood. Observatory will read that exact order and check its account and terms; entering an ID never places an order."),orderId);
+  controls.append(action("Read and link broker order",async()=>{const id=orderId.value.trim();if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))throw new Error("Enter the broker's exact order UUID.");await api(`/api/trades/${idea.id}/link/${id}`,{});await load();notice("Broker order read and linked. Review its actual status below; acceptance is not a fill.");}));
  }
  if(idea.broker_order)card.append(node("h4","Observed broker order"),node("pre",JSON.stringify(idea.broker_order,null,2)));
  card.append(OwnerOrders.render(idea,submission,api,load,notice),controls);return card;}

@@ -29,6 +29,13 @@ def validate_rows(rows, required):
 
 
 async def collect(broker, config):
+    started = now()
+    feeds = {}
+
+    def receipt(name, complete=True):
+        # RPC receipt time is not a broker source timestamp. Unknown remains explicit.
+        feeds[name] = {"received_at": now().isoformat(), "source_as_of": None, "complete": complete}
+
     account = broker.account
     accounts = await broker.call("get_accounts", {})
     matches = [
@@ -37,6 +44,7 @@ async def collect(broker, config):
     if len(matches) != 1 or matches[0].get("state") != "active" or matches[0].get("deactivated"):
         raise MalformedData()
     selected = matches[0]
+    receipt("account")
     # Explicitly bound account only. Caller-relative agent access must be independently reverified.
     if selected.get("agentic_allowed") is not True:
         raise PermissionError("Selected account not accessible to this independently authenticated client")
@@ -49,7 +57,10 @@ async def collect(broker, config):
                 raise ValueError()
     except (KeyError, ValueError, ArithmeticError):
         raise MalformedData() from None
+    receipt("portfolio")
     result = {
+        "collection_started_at": started.isoformat(),
+        "feed_metadata": feeds,
         "portfolio": portfolio,
         "account": {
             k: selected.get(k)
@@ -69,14 +80,18 @@ async def collect(broker, config):
         result[f"{asset}_positions"] = validate_rows(
             rows, ["quantity", "symbol" if asset == "equity" else "option_id"]
         )
+        receipt(f"{asset}_positions")
         orders = await broker.pages(f"get_{asset}_orders", "orders", {"account_number": account})
         result[f"{asset}_orders"] = validate_rows(orders, ["id", "state"])
+        receipt(f"{asset}_orders")
     result["advanced_orders"] = None
     if "get_advanced_orders" in broker.schemas:
         result["advanced_orders"] = await broker.pages(
             "get_advanced_orders", "orders", {"account_number": account}
         )
+        receipt("advanced_orders")
     else:
+        feeds["advanced_orders"] = {"received_at": None, "source_as_of": None, "complete": False}
         result["warnings"].append("Advanced/grouped orders unavailable: total open-order coverage incomplete")
     result["crypto_positions"] = result["crypto_orders"] = None
     # Numeric crypto identifier comes only from the explicitly matched brokerage account.
@@ -88,6 +103,9 @@ async def collect(broker, config):
         ]:
             if name in broker.schemas:
                 result[key] = await broker.pages(name, "results", {"rhs_account_number": broker.rhs_account})
+                receipt(key)
+    for key in ("crypto_positions", "crypto_orders"):
+        feeds.setdefault(key, {"received_at": None, "source_as_of": None, "complete": False})
     if result["crypto_positions"] is None:
         result["warnings"].append("Crypto positions/orders coverage is unknown")
     for field in ["futures_value", "event_contracts_value", "fixed_income_value", "mutual_funds_value"]:
@@ -167,3 +185,4 @@ async def collect(broker, config):
         for x in result["option_orders"]
     ]
     return result
+

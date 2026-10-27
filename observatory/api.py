@@ -15,23 +15,35 @@ from authlib.integrations.starlette_client import OAuth
 from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import Field
 from starlette.middleware.sessions import SessionMiddleware
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from .broker import ReadOnlyBroker, BrokerError, Throttled
-from .db import Database, State, Audit, PaperProposal, Secret, now
-from .domain import Paper
+from .db import Database, State, Audit, PaperProposal, Secret, TradeIdea, now
+from .domain import Paper, StrictModel
 from .oauth import RobinhoodOAuth, OAuthProblem
 from .enrollment import LocalEnrollment
 from .security import Vault, bearer_principal, principal, require_control
 from .service import status, history, change_pause, start_observations
 from .market import market_status
 from .settings import Settings
-from . import rehearsal, assistant, trade_review, push, manual_orders
+from . import rehearsal, assistant, trade_review, push, manual_orders, mandate, research
 
 STATIC = Path(__file__).parent / "static"
+
+
+class CompareResearchRequest(StrictModel):
+    candidates: list[research.ResearchCandidate] = Field(max_length=20)
+
+
+class ResearchSourceConfiguration(StrictModel):
+    request_id: uuid.UUID
+    sources: list[research.SECSource] = Field(max_length=5)
+    sec_user_agent: str = Field(min_length=3, max_length=200)
+    research_generation_enabled: bool = False
 
 
 def log_request_failure(exc):
@@ -72,6 +84,23 @@ def create_app(settings=None, database=None):
         "Observatory reads", instructions="Stored read-only monitoring data. No brokerage tools."
     )
     control = MCPServer("Observatory controls", instructions="Monitor controls and research proposals. No order submission tools.")
+
+    def compare_research(body):
+        with db.session() as session:
+            state = session.get(State, 1)
+            # Evaluate each candidate separately against server-owned evidence.
+            reports = [research.compare([candidate], now(), mandate.live_proposal_gate(session, state, candidate))
+                       for candidate in body.candidates]
+        combined = research.compare([], now())
+        combined["results"] = [result for report in reports for result in report["results"]]
+        combined["families_compared"] = sorted({family for report in reports for family in report["families_compared"]})
+        return combined
+
+    @control.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
+    async def screen_research_candidates(request: CompareResearchRequest) -> dict:
+        """Compare fully specified candidates and no trade. Never publish or submit an order."""
+        require_control()
+        return compare_research(request)
 
     @read.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
     async def monitor_status() -> dict:
@@ -304,6 +333,54 @@ def create_app(settings=None, database=None):
             raise HTTPException(403, "Use the signed-in owner dashboard")
         return actor
 
+    @app.get("/api/research-mandate")
+    async def get_research_mandate():
+        owner_session()
+        return mandate.get_current(db)
+
+    @app.post("/api/research-mandate")
+    async def confirm_research_mandate(body: mandate.MandateInput):
+        return mandate.save(db, vault, owner_session()["sub"], body)
+
+    @app.post("/api/research-mandate/disable")
+    async def disable_research_mandate(body: mandate.DisableInput):
+        return mandate.disable(db, owner_session()["sub"], body)
+
+    @app.post("/api/research/compare")
+    async def assess_research_candidates(body: CompareResearchRequest):
+        require_control()
+        return compare_research(body)
+
+    @app.get("/api/research/sources")
+    async def research_sources():
+        owner_session()
+        with db.session() as session:
+            config = session.get(State, 1).config or {}
+            return {"sources": config.get("research_sources", []),
+                    "contact_configured": bool(config.get("research_sec_user_agent")),
+                    "research_generation_enabled": config.get("research_generation_enabled") is True,
+                    "limit": 5, "execution": "research_only"}
+
+    @app.post("/api/research/sources")
+    async def configure_research_sources(body: ResearchSourceConfiguration):
+        actor = owner_session()
+        config = {"research_sources": [x.model_dump(mode="json") for x in body.sources],
+                  "research_sec_user_agent": body.sec_user_agent,
+                  "research_generation_enabled": body.research_generation_enabled}
+        research.source_settings(config)
+        request_hash = rehearsal.fingerprint(config)
+        with db.session() as session:
+            state = session.scalar(select(State).where(State.id == 1).with_for_update())
+            prior = session.get(Audit, str(body.request_id))
+            details = {"config_hash": request_hash}
+            if prior:
+                if prior.actor != actor["sub"] or prior.action != "research_sources_configured" or prior.details != details:
+                    raise HTTPException(409, "Source configuration request ID conflict")
+                return {"saved": True, "repeated": True, "execution": "research_only"}
+            state.config = {**(state.config or {}), **config}
+            session.add(Audit(id=str(body.request_id), actor=actor["sub"], action="research_sources_configured", details=details))
+        return {"saved": True, "sources": config["research_sources"], "execution": "research_only"}
+
     @app.get("/api/trades")
     async def get_ideas():
         return {"ideas": trade_review.list_ideas(db), "execution_route": "manual_robinhood",
@@ -317,7 +394,12 @@ def create_app(settings=None, database=None):
 
     @app.post("/api/trades/{ident}/reconcile")
     async def reconcile_order(ident: uuid.UUID):
-        owner_session()
+        actor = owner_session()
+        with db.session() as s:
+            row = s.get(TradeIdea, str(ident))
+            manual_id = row.broker_order_id if row and row.status == "observed_manual_order" else None
+        if manual_id:
+            return await trade_review.observe_manual_order(db, settings, vault, actor["sub"], ident, manual_id)
         return await manual_orders.reconcile(db, settings, vault, ident)
 
     @app.post("/api/trades")
@@ -345,7 +427,7 @@ def create_app(settings=None, database=None):
 
     @app.post("/api/trades/{ident}/link/{order_id}")
     async def link_idea_order(ident: uuid.UUID, order_id: uuid.UUID):
-        return trade_review.link_order(db, owner_session()["sub"], ident, order_id)
+        return await trade_review.observe_manual_order(db, settings, vault, owner_session()["sub"], ident, order_id)
 
     @app.get("/api/notifications")
     async def notification_status():
@@ -541,6 +623,8 @@ def create_app(settings=None, database=None):
                 raise HTTPException(
                     409, "Account rebinding requires an isolated database; histories must not mix"
                 )
+            # Stable opaque identity for this immutable account; cipher re-encryption is not identity.
+            row.account_binding = row.account_binding or str(uuid.uuid4())
             row.account_cipher = vault.encrypt(data["account"])
             row.account_label = "Agent account ••••" + data["account"][-4:]
             row.account_verified, row.paused, row.status = True, True, "paused"

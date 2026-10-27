@@ -204,17 +204,24 @@ async def run_cycle(db, settings, vault, broker_factory=ReadOnlyBroker, connecti
             broker.rpc = guarded_rpc
         metrics_before = dict(broker.metrics)
         await broker.initialize()
+        collection_started = now()
         payload = await collect(broker, config)
-        snap = Snapshot(id=str(uuid.uuid4()), source="robinhood_mcp_live", payload=payload, observed_at=now())
+        snap = Snapshot(id=str(uuid.uuid4()), source="robinhood_mcp_live", payload=payload, observed_at=now(),
+                        collection_started_at=collection_started)
         with db.session() as s:
             row = s.scalar(select(State).where(State.id == 1).with_for_update())
-            if row.generation != generation or row.paused:
+            if (row.generation != generation or row.paused or not row.account_verified
+                    or not row.account_cipher or vault.decrypt(row.account_cipher) != account):
                 s.get(Work, job_id).state = "superseded"
                 s.get(Work, job_id).finished_at = now()
                 return "superseded"
+            # Only collection after independent account revalidation can establish provenance.
+            row.account_binding = row.account_binding or str(uuid.uuid4())
+            snap.account_binding, snap.generation = row.account_binding, generation
             previous = s.scalar(
                 select(Snapshot)
-                .where(Snapshot.source == "robinhood_mcp_live")
+                .where(Snapshot.source == "robinhood_mcp_live",
+                       Snapshot.account_binding == row.account_binding, Snapshot.generation == generation)
                 .order_by(Snapshot.observed_at.desc())
             )
             changes = record_events(s, payload, previous.payload if previous else None,
@@ -222,6 +229,8 @@ async def run_cycle(db, settings, vault, broker_factory=ReadOnlyBroker, connecti
             s.add(snap)
             from .manual_orders import reconcile_records
             reconcile_records(s, payload, row.account_cipher, snap.observed_at)
+            from .trade_review import reconcile_manual_snapshot
+            reconcile_manual_snapshot(s, row, snap)
             row.last_success = now()
             row.status = "degraded" if payload.get("warnings") else "monitoring"
             row.failures = 0
@@ -252,6 +261,14 @@ async def run_cycle(db, settings, vault, broker_factory=ReadOnlyBroker, connecti
             result = await analyze(db, settings, snap)
             with db.session() as s:
                 s.get(State, 1).analysis_status = result
+        # Public-source research has no broker writes and cannot turn incomplete
+        # observations into a recommendation. Optional source failures must not
+        # relabel a successfully committed portfolio reconciliation as failed.
+        try:
+            from .research import run_research_cycle
+            await run_research_cycle(db, settings, snap)
+        except Exception:
+            log.warning("optional_research_unavailable")
         return "succeeded"
     except Exception as exc:
         code = exc.code if isinstance(exc, BrokerError) else "monitoring_failed"
@@ -356,4 +373,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
