@@ -120,10 +120,11 @@ async def test_linking_requires_matching_observed_order(configured, settings, va
              "state": "partially_filled", "cumulative_quantity": "0.5"}
     with configured.session() as s:
         s.add(Snapshot(id=str(uuid4()), source="robinhood_mcp_live", payload={"equity_orders": [order]}))
-    result = review.link_order(configured, settings.owner_subject, idea["id"], order_id)
-    assert result["broker_order"]["state"] == "partially_filled"
-    assert result["broker_order"]["filled_quantity"] == "0.5"
-    assert result["sent_to_broker"] is False
+    # The snapshot does not prove immutable account provenance. Even a matching
+    # observed order cannot be associated with this proposal until it does.
+    with pytest.raises(HTTPException) as failure:
+        review.link_order(configured, settings.owner_subject, idea["id"], order_id)
+    assert failure.value.status_code == 409
 
 
 def test_option_shape_and_preview_echo():
@@ -136,3 +137,4 @@ def test_option_shape_and_preview_echo():
         review.validate_echo(terms, {**args, "order_checks": {}, "direction": "credit"})
     with pytest.raises(ValueError):
         review.Terms(asset="option", symbol="TEST", quantity=1, limit_price="1", legs=[leg, leg], direction="debit")
+

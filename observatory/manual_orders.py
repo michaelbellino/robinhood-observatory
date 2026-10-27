@@ -3,7 +3,6 @@
 Only the authenticated browser route invokes this module. A transmission consumes
 its durable reservation before I/O. An ambiguous response never authorizes retry.
 """
-import asyncio
 import hashlib
 import itertools
 import time
@@ -38,8 +37,8 @@ class SubmitOrder(StrictModel):
 
 class OwnerOrderBroker(PreviewBroker):
     """Requires an exact, single-use local grant. Never used by the collector."""
-    allowed = PreviewBroker.allowed | {"place_equity_order", "place_option_order", "get_equity_tradability"}
-    account_reads = PreviewBroker.account_reads | {"place_equity_order", "place_option_order", "get_equity_tradability"}
+    allowed = PreviewBroker.allowed | {"get_equity_tradability"}
+    account_reads = PreviewBroker.account_reads | {"get_equity_tradability"}
     client_name = "robinhood-observatory-owner-order-entry"
 
     def __init__(self, *args, **kwargs):
@@ -327,83 +326,5 @@ def checked_order(terms, response):
 
 
 async def submit(db, settings, vault, ident, actor, body, broker_factory=OwnerOrderBroker):
-    ident = str(ident)
-    reservation, previous = reserve(db, actor, ident, body)
-    if previous is not None:
-        return previous
-    cipher, terms, ref_id, generation, request_hash, attempt_id = reservation
-    broker, dispatched = None, False
-    try:
-        account = vault.decrypt(cipher)
-        broker = broker_factory(await RobinhoodOAuth(db, vault, settings).access_token(), account, settings.broker_rpm)
-        broker.limiter = RequestLimiter(db, settings.broker_rpm)
-        await broker.initialize()
-        await eligibility(broker, account, terms)
-        args = terms.broker_arguments(account)
-        # Placement schema deliberately differs from review: these two fields
-        # request fee/contract metadata only and must not enter the write call.
-        args.pop("chain_symbol", None)
-        args.pop("underlying_type", None)
-        args["ref_id"] = ref_id
-        name = f"place_{terms.asset}_order"
-        broker.grant = (name, fingerprint(args))
-
-        async def before_transmission():
-            nonlocal dispatched
-            with db.session() as s:
-                state = s.scalar(select(State).where(State.id == 1).with_for_update())
-                row = s.scalar(select(TradeIdea).where(TradeIdea.id == ident).with_for_update())
-                sub = s.get(OrderSubmission, ident)
-                if (not state.account_verified or state.paused or state.generation != generation
-                        or row.account_cipher != cipher
-                        or state.account_cipher != cipher or sub.state != "preparing"
-                        or sub.ref_id != ref_id or sub.request_hash != request_hash):
-                    raise HTTPException(409, "Account or submission state changed; refresh before continuing")
-                if (sub.approval or {}).get("attempt_id") != attempt_id:
-                    raise HTTPException(409, "This interrupted approval was replaced; refresh its status")
-                validate_review(row, body, generation)
-                sub.state, sub.updated_at = "transmitting", now()
-                row.status = "submission_in_progress"
-            dispatched, broker.consumed = True, True
-
-        broker.preflight = before_transmission
-        response = await broker.call(name, args)
-        order = checked_order(terms, response)
-        with db.session() as s:
-            s.scalar(select(State).where(State.id == 1).with_for_update())
-            sub = s.get(OrderSubmission, ident)
-            if sub.state == "acknowledged":
-                return result(sub)  # Reconciliation can observe a fill before this response arrives.
-            row = s.get(TradeIdea, ident)
-            sub.state, sub.order, sub.updated_at = "acknowledged", order, now()
-            sub.message = status_message(order)
-            row.status, row.broker_order_id = "submitted_by_owner", order["id"]
-            s.add(Audit(id=str(uuid4()), actor=actor, action="owner_order_acknowledged",
-                        details={"idea_id": ident, "ref_id": ref_id, "order_id": order["id"]}))
-            order_event(s, sub)
-            return result(sub)
-    except (Exception, asyncio.CancelledError) as exc:
-        with db.session() as s:
-            s.scalar(select(State).where(State.id == 1).with_for_update())
-            sub = s.get(OrderSubmission, ident)
-            if (sub.approval or {}).get("attempt_id") != attempt_id or sub.state == "acknowledged":
-                if isinstance(exc, asyncio.CancelledError):
-                    raise
-                return result(sub)
-            sub.state, sub.updated_at = ("unknown" if dispatched else "not_sent"), now()
-            row = s.get(TradeIdea, ident)
-            row.status = "submission_unknown" if dispatched else "awaiting_review"
-            sub.message = ("Broker outcome unknown. Check Robinhood before doing anything else; this app will not resend."
-                if dispatched else exc.detail if isinstance(exc, HTTPException)
-                else "Order was not sent. Refresh the preview and check the connection before trying again.")
-            outcome = result(sub)
-        if isinstance(exc, asyncio.CancelledError):
-            raise
-        return outcome
-    finally:
-        if broker:
-            try:
-                await broker.close()
-            except Exception:
-                pass  # Closing transport cannot change a recorded broker outcome.
-
+    """Legacy entry point is disabled; manual placement happens in Robinhood."""
+    raise HTTPException(410, "Hosted order submission is disabled. Place any order manually in Robinhood.")

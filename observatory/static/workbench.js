@@ -22,6 +22,7 @@ async function sendCommand(message){
 }
 function renderTicket(ticket){
  const card=node("article",undefined,"ticket"),p=ticket.payload,t=p.terms;
+ card.id=ticket.id;
  card.append(node("h3",`${t.asset==="option"?"Long option":"Stock"} · ${t.symbol} · ${usd(p.paper_debit_usd)} paper debit`),node("p",p.label,"small"));
  card.append(node("strong",ticket.status.replaceAll("_"," "),"ticket-state"),node("span",`Review deadline: ${stamp(ticket.expires_at)}`,"small"));
  const terms=node("dl");
@@ -42,7 +43,7 @@ function renderTicket(ticket){
  }
  return card;
 }
-async function refreshTickets(){const data=await request("/api/rehearsals");el("tickets").replaceChildren(...data.tickets.map(renderTicket));if(!data.tickets.length)el("tickets").textContent="No paper tests yet. Try ‘Test a stock ticket’ or ‘Test an option ticket’.";}
+async function refreshTickets(){const data=await request("/api/rehearsals");el("tickets").replaceChildren(...data.tickets.map(renderTicket));if(!data.tickets.length)el("tickets").textContent="No paper tests yet. Try ‘Test a stock ticket’ or ‘Test an option ticket’.";if(location.hash)document.getElementById(location.hash.slice(1))?.scrollIntoView({block:"start"});}
 el("command-form").onsubmit=event=>{event.preventDefault();sendCommand(el("command").value.trim());};
 for(const button of document.querySelectorAll("[data-command]"))button.onclick=()=>{el("command").value=button.dataset.command;sendCommand(button.dataset.command);};
 el("reload-tickets").onclick=()=>refreshTickets().catch(error=>notice(error.message));
@@ -55,3 +56,4 @@ el("ticket-form").onsubmit=async event=>{
  try{await request("/api/rehearsals",pendingTicket);pendingTicket=null;notice("Synthetic paper ticket created. Review the exact terms below.");await refreshTickets();}catch(error){notice(error.message);}finally{el("create-ticket").disabled=!signedIn;}
 };
 (async()=>{try{const session=await request("/api/session");csrf=session.csrf||"";signedIn=session.scope==="control";el("test-signin").hidden=true;el("send-command").disabled=el("create-ticket").disabled=!signedIn;notice("Paper testing ready. $0 real money; no extra model or brokerage calls.");await refreshTickets();}catch(error){notice(error.message);}})();
+

@@ -18,7 +18,7 @@ from py_vapid import Vapid
 from pywebpush import webpush, WebPushException
 from requests import Response
 from sqlalchemy import select, func
-from .db import State, Event, TradeIdea, PushDevice, PushDelivery, Audit, aware, now
+from .db import State, Event, TradeIdea, Rehearsal, PushDevice, PushDelivery, Audit, aware, now
 from .domain import StrictModel
 
 PUSH_HOSTS = {"web.push.apple.com", "fcm.googleapis.com", "updates.push.services.mozilla.com"}
@@ -201,6 +201,14 @@ async def dispatch(db, settings, vault, sender=send):
                 ttl = max(1, min(ttl, int((aware(idea.expires_at)-now()).total_seconds())))
                 path += "#" + idea.id
                 title, message = "Trade idea ready", "Review the proposal and current broker preview before deciding."
+            elif event.kind == "paper_rehearsal":
+                paper = s.get(Rehearsal, event.payload.get("rehearsal_id"))
+                if not paper or paper.status != "awaiting_paper_review" or aware(paper.expires_at) <= now():
+                    row.state = "expired"
+                    continue
+                ttl = max(1, min(ttl, int((aware(paper.expires_at)-now()).total_seconds())))
+                path = "/workbench#" + paper.id
+                title, message = "PAPER proposal ready", "Review this synthetic paper test. No brokerage order was created."
             elif event.kind == "trade_order_status":
                 idea = s.get(TradeIdea, event.payload.get("idea_id"))
                 if not idea:
@@ -235,4 +243,5 @@ async def dispatch(db, settings, vault, sender=send):
                 row.next_attempt = now()+timedelta(seconds=30 * 2**row.attempts)
             else:
                 row.state = "failed"
+
 
