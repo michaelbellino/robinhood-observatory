@@ -22,7 +22,7 @@ from mcp.types import ToolAnnotations
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from .broker import ReadOnlyBroker, BrokerError, Throttled
-from .db import Database, State, Audit, PaperProposal, Secret, TradeIdea, now
+from .db import Database, State, Audit, PaperProposal, Secret, TradeIdea, Analysis, now
 from .domain import Paper, StrictModel
 from .oauth import RobinhoodOAuth, OAuthProblem
 from .enrollment import LocalEnrollment
@@ -355,6 +355,27 @@ def create_app(settings=None, database=None):
     async def assess_research_candidates(body: CompareResearchRequest):
         require_control()
         return compare_research(body)
+
+    @app.get("/api/research/readiness")
+    async def research_readiness_status():
+        from .research_readiness import readiness
+        return readiness(db, settings)
+
+    @app.get("/api/research/reports")
+    async def research_reports():
+        with db.session() as session:
+            rows = session.scalars(select(Analysis).where(Analysis.strategy_version == research.VERSION)
+                                   .order_by(Analysis.created_at.desc()).limit(10)).all()
+            return {"execution": "research_only", "reports": [{
+                "id": row.id, "created_at": row.created_at,
+                "outcome": row.payload.get("outcome", "unknown"),
+                "leads": row.payload.get("leads", []),
+                "source_errors": row.payload.get("source_errors", []),
+                "limitations": row.payload.get("limitations", []),
+                "generation": row.payload.get("generation", {}),
+                "blockers": row.payload.get("gate", {}).get("reasons", []),
+                "published_proposal_count": len(row.payload.get("published_idea_ids", [])),
+            } for row in rows]}
 
     @app.get("/api/research/sources")
     async def research_sources():

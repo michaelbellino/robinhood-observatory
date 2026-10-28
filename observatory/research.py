@@ -379,7 +379,7 @@ async def run_research_cycle(db, settings, snapshot, source_adapter=None):
     import json
     from uuid import uuid4
     from sqlalchemy import select
-    from .db import Analysis, MarketState, State, aware, now
+    from .db import Analysis, Event, MarketState, State, aware, now
     from .mandate import live_proposal_gate
     at = now()
     with db.session() as session:
@@ -453,6 +453,10 @@ async def run_research_cycle(db, settings, snapshot, source_adapter=None):
         analysis_id = str(uuid4())
         session.add(Analysis(id=analysis_id, snapshot_id=snapshot.id, payload=report,
                              model="deterministic-public-source", strategy_version=VERSION))
+        # Commit the status notification atomically with its durable report. A
+        # no-trade/disabled/source-error result is useful status, never a proposal.
+        session.add(Event(id="research:" + analysis_id, kind="research_report",
+                          payload={"analysis_id": analysis_id}))
     published = publish_assessed_candidates(db, report)
     if published:
         with db.session() as session:

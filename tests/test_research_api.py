@@ -46,3 +46,27 @@ def test_source_configuration_rejects_untrusted_hosts_and_duplicate_universe(cli
     assert client.post("/api/research/sources", headers=headers, json=body).status_code == 422
     body["sources"] = [{"symbol": "TEST", "cik": "123"}, {"symbol": "TEST", "cik": "456"}]
     assert client.post("/api/research/sources", headers=headers, json=body).status_code == 400
+
+
+def test_reports_authentication_and_bounded_safe_summary(client, db, read_headers):
+    from observatory.db import Analysis, now
+    from observatory.research import VERSION
+    assert client.get('/api/research/reports').status_code == 401
+    with db.session() as session:
+        for number in range(12):
+            session.add(Analysis(id=str(uuid4()), snapshot_id='synthetic-snapshot', created_at=now(), model='deterministic-public-source',
+                                 strategy_version=VERSION, payload={'outcome': 'no_trade',
+                                 'private_unlisted_field': 'must-not-expose', 'gate': {'reasons': ['snapshot_stale']}}))
+    response = client.get('/api/research/reports', headers=read_headers)
+    assert response.status_code == 200
+    assert len(response.json()['reports']) == 10
+    assert 'must-not-expose' not in response.text
+    assert response.headers['cache-control'] == 'no-store'
+    assert response.json()['reports'][0]['blockers'] == ['snapshot_stale']
+
+
+def test_readiness_requires_authentication(client, read_headers):
+    assert client.get('/api/research/readiness').status_code == 401
+    response = client.get('/api/research/readiness', headers=read_headers)
+    assert response.status_code == 200
+    assert response.headers['cache-control'] == 'no-store'
