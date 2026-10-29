@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 from mcp.server.transport_security import TransportSecuritySettings
 from .rate_limit import RequestLimiter
 from authlib.integrations.starlette_client import OAuth
+from authlib.integrations.base_client import OAuthError
 from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,11 +23,11 @@ from mcp.types import ToolAnnotations
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from .broker import ReadOnlyBroker, BrokerError, Throttled
-from .db import Database, State, Audit, PaperProposal, Secret, TradeIdea, now
+from .db import Database, State, Audit, PaperProposal, Secret, TradeIdea, Analysis, now
 from .domain import Paper, StrictModel
 from .oauth import RobinhoodOAuth, OAuthProblem
 from .enrollment import LocalEnrollment
-from .security import Vault, bearer_principal, principal, require_control
+from .security import Vault, bearer_principal, principal, require_control, owner_return_path, digest
 from .service import status, history, change_pause, start_observations
 from .market import market_status
 from .settings import Settings
@@ -300,13 +301,31 @@ def create_app(settings=None, database=None):
             or (settings.auth_provider == "oidc" and settings.oidc_issuer)
         ):
             return JSONResponse({"detail": "Owner authentication has not been configured"}, status_code=503)
+        # Bind the destination to this OAuth attempt, not whichever tab last
+        # visited a page. Authlib still validates/consumes the OAuth state.
+        state = secrets.token_urlsafe(32)
+        destination = owner_return_path(
+            request.query_params.get("next", request.session.pop("enrollment_return", "/"))
+        )
+        returns = request.session.get("owner_login_returns", {})
+        returns = dict(list(returns.items())[-3:])
+        returns[digest(state)] = destination
+        request.session["owner_login_returns"] = returns
         return await oauth.owner.authorize_redirect(
-            request, settings.public_url.rstrip("/") + "/auth/callback"
+            request, settings.public_url.rstrip("/") + "/auth/callback", state=state
         )
 
     @app.get("/auth/callback")
     async def oidc_callback(request: Request):
-        token = await oauth.owner.authorize_access_token(request)
+        try:
+            token = await oauth.owner.authorize_access_token(request)
+        except OAuthError:
+            # Provider descriptions can contain sensitive/untrusted text. Keep
+            # canceled, expired and mismatched attempts out of the owner session.
+            returns = request.session.get("owner_login_returns", {})
+            returns.pop(digest(request.query_params.get("state", "")), None)
+            request.session["owner_login_returns"] = returns
+            return FileResponse(STATIC / "signin-error.html", status_code=400)
         if settings.auth_provider == "github":
             response = await oauth.owner.get("user", token=token)
             response.raise_for_status()
@@ -318,10 +337,12 @@ def create_app(settings=None, database=None):
         if not claims or claims.get("sub") != settings.owner_subject or claims.get("iss") != expected_issuer:
             request.session.clear()
             raise HTTPException(403, "This application is limited to its configured owner")
-        enrollment_return = request.session.get("enrollment_return", "/")
+        destination = owner_return_path(request.session.get("owner_login_returns", {}).get(
+            digest(request.query_params.get("state", "")), "/"
+        ))
         request.session.clear()
         request.session.update(sub=claims["sub"], csrf=secrets.token_urlsafe(32))
-        return RedirectResponse(enrollment_return, status_code=303)
+        return RedirectResponse(destination, status_code=303)
 
     @app.post("/api/logout")
     async def logout(request: Request):
@@ -355,6 +376,27 @@ def create_app(settings=None, database=None):
     async def assess_research_candidates(body: CompareResearchRequest):
         require_control()
         return compare_research(body)
+
+    @app.get("/api/research/readiness")
+    async def research_readiness_status():
+        from .research_readiness import readiness
+        return readiness(db, settings)
+
+    @app.get("/api/research/reports")
+    async def research_reports():
+        with db.session() as session:
+            rows = session.scalars(select(Analysis).where(Analysis.strategy_version == research.VERSION)
+                                   .order_by(Analysis.created_at.desc()).limit(10)).all()
+            return {"execution": "research_only", "reports": [{
+                "id": row.id, "created_at": row.created_at,
+                "outcome": row.payload.get("outcome", "unknown"),
+                "leads": row.payload.get("leads", []),
+                "source_errors": row.payload.get("source_errors", []),
+                "limitations": row.payload.get("limitations", []),
+                "generation": row.payload.get("generation", {}),
+                "blockers": row.payload.get("gate", {}).get("reasons", []),
+                "published_proposal_count": len(row.payload.get("published_idea_ids", [])),
+            } for row in rows]}
 
     @app.get("/api/research/sources")
     async def research_sources():

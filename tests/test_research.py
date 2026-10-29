@@ -335,7 +335,8 @@ def test_generation_context_omits_account_financials_and_raw_orders():
             "form": "8-K", "claim": "Synthetic metadata only, not a trade hypothesis.", "accepted_at": AT.isoformat(),
             "retrieved_at": AT.isoformat(), "retrieval_status": "verified"}
     context = generation_context(snap, [lead])
-    assert set(context) == {"mode", "sources", "contracts", "quotes", "limitation"}
+    assert set(context) == {"mode", "sources", "contracts", "quotes", "limitation", "untrusted_filing_excerpts"}
+    assert context["untrusted_filing_excerpts"] == []
     assert "DO-NOT-TRANSMIT" not in str(context) and "PRIVATE" not in str(context)
 
 

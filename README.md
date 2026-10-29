@@ -1,6 +1,6 @@
 # Robinhood Observatory
 
-Portable, single-owner account monitoring, research, and **user-operated order entry**. The worker and chat tools remain observe/propose only. The authenticated `/trades` dashboard supports broker previews and an explicit owner Submit order button for supported stock order types/sessions and single- or multi-leg options on eligible accounts. No automatic order execution. Paper proposals remain separate, hypothetical, unfilled records.
+Portable, single-owner account monitoring, research, and **user-operated order entry**. The worker and chat tools remain observe/propose only. The authenticated `/trades` inbox supports broker previews and an exact-terms manual handoff. The owner enters and places any order in Robinhood. Hosted submission is disabled (HTTP 410); neither the dashboard, chat nor worker can place orders. Paper proposals remain separate, hypothetical, unfilled records.
 
 **2026-10-16 implementation status:** independent account reconciliation and quote polling, reusable MCP sessions, durable checkpoints, authenticated dashboard/MCP, and observe-only analysis infrastructure are implemented. The latest release passes 181 automated tests including real PostgreSQL recovery/restore tests. Deployment-specific account metadata, operational measurements and acceptance evidence are retained privately by the owner. See [market-data research](docs/MARKET-DATA-2026-10-16.md), [capabilities](docs/CAPABILITIES-2026-10-16.md) and [handoff](docs/HANDOFF.md). Test results do not establish a deployment's full-session reliability.
 
@@ -12,7 +12,7 @@ Portable, single-owner account monitoring, research, and **user-operated order e
 - PostgreSQL application state with Alembic migrations. Encrypted broker credentials, including refresh tokens, survive restarts. Secrets and financial data stay out of the repository.
 - Options contracts, legs, strategies, source timestamps and explicit unknowns. Quote polling, not streaming. Observe-only methodology interface.
 - Replaceable OpenAI Responses adapter; structured validation, source references, no tools, minimized input, daily/monthly application spending reservations. AI defaults off and never gates core collection.
-- Authenticated stored-data MCP at `/mcp/read/` and `/mcp/control/`. The latter manages monitoring and saves research proposals. Neither exposes order submission; the owner-session dashboard is the only submission route.
+- Authenticated stored-data MCP at `/mcp/read/` and `/mcp/control/`. The latter manages monitoring and saves research proposals. Neither exposes order submission, and the owner-session dashboard cannot submit either.
 
 ## Local development
 
@@ -45,4 +45,6 @@ MIT license covers this application, not Robinhood brokerage/market-data rights,
 
 ## Trade review and phone notifications
 
-`/trades` provides a real-instrument research inbox, broker previews, encrypted phone Web Push, and **direct user-operated submission**. The signed-in owner reviews exact terms and a fresh preview, acknowledges use of real funds, and clicks Submit order. Automatic trade selection, worker execution and ChatGPT event delivery are not enabled. See [workflow, setup, limitations and sources](docs/NOTIFICATIONS-AND-TRADE-REVIEW.md). The synthetic workbench remains separate.
+`/trades` provides a real-instrument research inbox, broker previews, encrypted phone Web Push, and a copyable manual-entry ticket. The signed-in owner reviews exact terms and fresh quotes, then places any order directly in Robinhood. **Open Robinhood does not prefill an order.** An Observatory review is not a broker approval or a fill. The owner can provide an exact broker order ID; read-only account-scoped observations verify its terms and journal its status. No realized profit is inferred from a proposal or premium credit.
+
+See [current workflow and verification limits](docs/MANUAL-WORKFLOW-2026-10-29.md) and [notification setup](docs/NOTIFICATIONS-AND-TRADE-REVIEW.md). The synthetic workbench remains separate. Test results establish only the tested code paths, not production phone receipt, broker access, or trading readiness.

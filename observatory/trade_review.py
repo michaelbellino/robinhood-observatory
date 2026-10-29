@@ -216,6 +216,8 @@ def serialize(row, snapshot=None, state=None, research_valid=False):
             "sent_to_broker": (None if row.status in {"ready_for_manual_submission", "submission_in_progress", "submission_unknown"}
                                else row.status == "submitted_by_owner"),
             "execution_route": "manual_robinhood", "broker_order": None,
+            "observatory_submitted_order": False,
+            "placement_evidence": "not_observed",
             "broker_order_id": row.broker_order_id,
             "manual_link_allowed": bool(bound and row.reviewed_at and (
                 row.status == "observed_manual_order" or (row.status == "ready_for_manual_submission"
@@ -227,6 +229,7 @@ def serialize(row, snapshot=None, state=None, research_valid=False):
         fresh = bool(bound and received and -5 <= (now()-received).total_seconds() <= 120
                      and observation.get("generation") == state.generation and not observation.get("issue"))
         order = observation.get("order") or {}
+        data["placement_evidence"] = "broker_read_verified" if fresh else "unresolved_or_stale"
         data["broker_order"] = {
             "id": row.broker_order_id, "status": normalized_status(order) if fresh else "unknown",
             "observed_at": received, "fresh": fresh,
@@ -234,6 +237,22 @@ def serialize(row, snapshot=None, state=None, research_valid=False):
             "last_observed_raw_state": order.get("state") if bound else None,
             "details": mask_accounts(order) if bound else None,
         }
+    # This is an observation journal, not an execution ledger or inferred P/L.
+    observed = data["broker_order"]
+    details = (observed or {}).get("details") or {}
+    data["journal"] = {
+        "proposal_created_at": aware(row.created_at), "proposal_version": row.version or 1,
+        "owner_reviewed_at": aware(row.reviewed_at), "proposal_status": status,
+        "broker_order_id": row.broker_order_id,
+        "broker_status": observed["status"] if observed else "not_observed",
+        "broker_observed_at": observed["observed_at"] if observed else None,
+        "filled_quantity": (details.get("processed_quantity" if row.payload["terms"]["asset"] == "option"
+                                       else "cumulative_quantity") if observed and observed["fresh"] else None),
+        "quantity_unit": "strategies/contracts" if row.payload["terms"]["asset"] == "option" else "shares",
+        "realized_pnl": None,
+        "pnl_note": "Not calculated: a proposal, premium credit, or single order is not realized profit.",
+        "execution_note": "Observatory does not submit orders. Only account-scoped broker reads establish placement or fills.",
+    }
     return data
 
 
@@ -522,7 +541,8 @@ def normalized_status(order):
             "confirmed": "accepted", "partially_filled": "partially_filled", "filled": "filled",
             "rejected": "rejected", "failed": "rejected", "cancelled": "canceled",
             "canceled": "canceled", "voided": "canceled",
-            "partially_filled_rest_cancelled": "canceled"}.get(order.get("state"), "unknown")
+            "partially_filled_rest_cancelled": "partially_filled_then_canceled",
+            "expired": "expired"}.get(order.get("state"), "unknown")
 
 
 def checked_manual_match(row, orders, order_id):
@@ -580,7 +600,7 @@ def _record_manual_observation(s, state, row, order, actor, received):
     if previous:
         key = "processed_quantity" if row.payload["terms"]["asset"] == "option" else "cumulative_quantity"
         old_fill, new_fill = Decimal(str(previous[key])), Decimal(str(order[key]))
-        terminal = {"filled", "rejected", "canceled"}
+        terminal = {"filled", "rejected", "canceled", "expired", "partially_filled_then_canceled"}
         if new_fill < old_fill or (normalized_status(previous) in terminal
                                  and normalized_status(previous) != normalized_status(order)):
             raise HTTPException(409, "Broker response conflicts with prior observation; status remains unresolved")

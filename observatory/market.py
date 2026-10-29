@@ -4,7 +4,7 @@ import uuid
 from datetime import timedelta
 from sqlalchemy import select, delete
 from .broker import AuthorizationExpired, BrokerError, MalformedData, Throttled
-from .calendar import poll_delay
+from .calendar import poll_delay, quote_session_context
 from .db import MarketState, MarketSample, Snapshot, State, aware, now
 from .domain import Quote, quote_from_broker
 
@@ -27,15 +27,24 @@ def market_status(db):
             return {"status": "not_collected", "source": "robinhood_mcp_polling", "quotes": []}
         payload = dict(market.payload)
         quotes = []
+        observed = now()
+        mappings = (state.config or {}).get("calendars", {})
         for item in payload.get("quotes", []):
             quote = Quote.model_validate({k: v for k, v in item.items() if k != "asset"})
-            side_ages = [(now() - at).total_seconds() for at in (quote.bid_at, quote.ask_at) if at]
+            side_ages = [(observed - at).total_seconds() for at in (quote.bid_at, quote.ask_at) if at]
             source_age = max(side_ages) if len(side_ages) == 2 else None
-            quote_state = quote.book_freshness(now())
-            quotes.append({**item, "trade_freshness": quote.freshness(now()),
+            quote_state = quote.book_freshness(observed)
+            # Never infer option hours from its underlying or refresh stale prices
+            # merely because a reference exchange calendar is outside session.
+            mapping = mappings.get(quote.instrument_id) if item.get("asset") == "equity" else None
+            session_context = quote_session_context(mapping, observed, (quote.bid_at, quote.ask_at))
+            quotes.append({**item, "trade_freshness": quote.freshness(observed),
                            "quote_freshness": quote_state, "source_age_seconds": source_age,
+                           "session_context": session_context,
+                           "fresh_book_data": quote_state == "fresh",
+                           "execution_readiness": "not_assessed",
                            "source_freshness_max_age_seconds": 60,
-                           "receipt_age_seconds": (now() - quote.received_at).total_seconds()})
+                           "receipt_age_seconds": (observed - quote.received_at).total_seconds()})
         next_run = aware(market.next_run)
         status = "paused" if state.paused else market.status
         if not state.paused and next_run and now() > next_run + timedelta(seconds=60):

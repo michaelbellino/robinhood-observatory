@@ -44,3 +44,6 @@ assert.match(evidenceText,/basis option_premium/);
 assert.match(evidenceText,/No trade alternative: Wait for verified pricing/);
 assert.match(evidenceText,/IV unavailable/);
 console.log('Owner controls: exact summaries, no submission action, ambiguous result warning passed.');
+
+// Keep the manual handoff checks in the existing Python/CI UI test entrypoint.
+await import("./manual_handoff_ui.mjs");
