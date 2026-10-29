@@ -69,12 +69,12 @@ async def test_no_old_event_flood_and_no_synthetic_trade_notification(db, settin
 
 
 async def test_expired_trade_alert_suppressed(configured, settings, vault):
-    from observatory.trade_review import create, NewIdea
-    from tests.test_trade_review import idea_body
+    from observatory.trade_review import create_owner_ticket, OwnerTicket
+    from tests.test_trade_review import owner_body
     from observatory.db import TradeIdea
     push.application_key(configured, vault)
     push.subscribe(configured, vault, settings.owner_subject, subscription())
-    idea = create(configured, settings.owner_subject, NewIdea.model_validate(idea_body()))
+    idea = create_owner_ticket(configured, settings.owner_subject, OwnerTicket.model_validate(owner_body()))
     with configured.session() as s:
         s.get(TradeIdea, idea["id"]).expires_at = now()-timedelta(seconds=1)
     def no_send(*args):
@@ -119,3 +119,4 @@ def test_device_setup_requires_owner_session(client, settings, control_headers):
     assert result.status_code == 200 and result.json()["public_key"]
     assert client.post("/api/notifications/subscribe", headers=headers, json=subscription().model_dump()).status_code == 200
     assert "endpoint" not in client.get("/api/notifications").text
+

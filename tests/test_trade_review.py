@@ -17,6 +17,10 @@ def idea_body(**changes):
             "methodology": "test-only/v1", "sources": ["synthetic fixture"], **changes}
 
 
+def owner_body(**changes):
+    return {"request_id": str(uuid4()), "terms": idea_body()["terms"], **changes}
+
+
 def quote():
     return {"symbol": "TEST", "bid_price": "0.99", "ask_price": "1.01", "venue_bid_time": now().isoformat(), "venue_ask_time": now().isoformat()}
 
@@ -36,7 +40,7 @@ class FakePreview:
 
 
 async def preview_fixture(db, settings, vault):
-    idea = review.create(db, settings.owner_subject, review.NewIdea.model_validate(idea_body()))
+    idea = review.create_owner_ticket(db, settings.owner_subject, review.OwnerTicket.model_validate(owner_body()))
     return await review.preview(db, settings, vault, idea["id"], settings.owner_subject, FakePreview)
 
 
@@ -58,21 +62,22 @@ async def test_real_review_flow_is_not_a_trade(configured, settings, vault):
 
 
 def test_idempotency_dedup_expiry_and_caps(configured, settings):
-    body = review.NewIdea.model_validate(idea_body())
-    first = review.create(configured, settings.owner_subject, body)
-    assert review.create(configured, settings.owner_subject, body)["id"] == first["id"]
+    body = review.OwnerTicket.model_validate(owner_body())
+    first = review.create_owner_ticket(configured, settings.owner_subject, body)
+    assert first["payload"]["origin"] == "owner_directed"
+    assert review.create_owner_ticket(configured, settings.owner_subject, body)["id"] == first["id"]
     body.request_id = uuid4()
-    assert review.create(configured, settings.owner_subject, body)["id"] == first["id"]
+    assert review.create_owner_ticket(configured, settings.owner_subject, body)["id"] == first["id"]
     body.request_id = UUID(first["id"])
     body.terms.limit_price = Decimal("2")
     with pytest.raises(HTTPException, match="Request ID"):
-        review.create(configured, settings.owner_subject, body)
+        review.create_owner_ticket(configured, settings.owner_subject, body)
     with configured.session() as s:
         s.get(TradeIdea, first["id"]).expires_at = now()-timedelta(seconds=1)
     assert review.list_ideas(configured)[0]["status"] == "expired"
 
 
-@pytest.mark.parametrize("failure", ["preview", "terms", "expiry", "changed_preview"])
+@pytest.mark.parametrize("failure", ["preview", "terms", "origin", "expiry", "changed_preview"])
 async def test_review_rejects_staleness_and_changes(configured, settings, vault, failure):
     idea = await preview_fixture(configured, settings, vault)
     request = decision(idea)
@@ -82,6 +87,8 @@ async def test_review_rejects_staleness_and_changes(configured, settings, vault,
             row.preview_at = now()-timedelta(minutes=2)
         if failure == "terms":
             row.payload = {**row.payload, "rationale": "Changed explanation"}
+        if failure == "origin":
+            row.payload = {**row.payload, "origin": "research_recommendation"}
         if failure == "expiry":
             row.expires_at = now()-timedelta(seconds=1)
         if failure == "changed_preview":
@@ -103,10 +110,24 @@ def test_no_broker_write_method_in_either_adapter():
 def test_auth_and_csrf(client, configured, settings, control_headers, read_headers):
     assert client.get("/api/trades").status_code == 401
     assert client.post("/api/trades", headers=read_headers, json=idea_body()).status_code == 403
-    idea = client.post("/api/trades", headers=control_headers, json=idea_body()).json()
+    assert client.post("/api/trades", headers=control_headers,
+                       json=idea_body(methodology="owner-directed")).status_code == 409
+    # Control bearer credentials cannot turn the owner ticket path into a bypass.
+    assert client.post("/api/trades/owner-ticket", headers=control_headers, json=owner_body()).status_code == 403
+    idea = review.create_owner_ticket(configured, settings.owner_subject, review.OwnerTicket.model_validate(owner_body()))
     assert client.post(f'/api/trades/{idea["id"]}/preview', headers=control_headers).status_code == 403
     owner_session(client, settings)
     assert client.post(f'/api/trades/{idea["id"]}/preview').status_code == 403
+
+
+def test_unproven_research_mandate_denied_even_if_methodology_spoofed(configured, settings):
+    for methodology in ("test-only/v1", "owner-directed"):
+        candidate = review.NewIdea.model_validate(idea_body(methodology=methodology))
+        with pytest.raises(HTTPException) as failure:
+            review.create(configured, settings.owner_subject, candidate)
+        assert failure.value.status_code == 409
+    with configured.session() as s:
+        assert s.scalar(select(func.count()).select_from(TradeIdea)) == 0
 
 
 async def test_linking_requires_matching_observed_order(configured, settings, vault):

@@ -22,6 +22,7 @@ class State(Base):
     paused: Mapped[bool] = mapped_column(Boolean, default=True)
     account_cipher: Mapped[str | None] = mapped_column(Text)
     account_label: Mapped[str | None] = mapped_column(String(80))
+    account_binding: Mapped[str | None] = mapped_column(String(36))
     account_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     last_success: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_attempt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -81,6 +82,9 @@ class Snapshot(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
     source: Mapped[str] = mapped_column(String(30))
+    account_binding: Mapped[str | None] = mapped_column(String(36))
+    generation: Mapped[int | None] = mapped_column(Integer)
+    collection_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     payload: Mapped[dict] = mapped_column(JSON)
 
 
@@ -157,6 +161,10 @@ class TradeIdea(Base):
     preview_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     preview_generation: Mapped[int | None] = mapped_column(Integer)
     broker_order_id: Mapped[str | None] = mapped_column(String(36))
+    broker_observation: Mapped[dict | None] = mapped_column(JSON)
+    broker_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    account_binding: Mapped[str | None] = mapped_column(String(36))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     account_cipher: Mapped[str | None] = mapped_column(Text)
     account_label: Mapped[str | None] = mapped_column(String(80))
     version: Mapped[int] = mapped_column(Integer, default=1)
@@ -276,4 +284,5 @@ class Database:
                 if held and not connection.invalidated:
                     connection.execute(text("SELECT pg_advisory_unlock(734105016)"))
                     connection.commit()
+
 

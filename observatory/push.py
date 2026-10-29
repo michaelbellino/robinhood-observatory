@@ -18,7 +18,7 @@ from py_vapid import Vapid
 from pywebpush import webpush, WebPushException
 from requests import Response
 from sqlalchemy import select, func
-from .db import State, Event, TradeIdea, Rehearsal, PushDevice, PushDelivery, Audit, aware, now
+from .db import State, Event, Analysis, TradeIdea, Rehearsal, PushDevice, PushDelivery, Audit, aware, now
 from .domain import StrictModel
 
 PUSH_HOSTS = {"web.push.apple.com", "fcm.googleapis.com", "updates.push.services.mozilla.com"}
@@ -216,6 +216,14 @@ async def dispatch(db, settings, vault, sender=send):
                     continue
                 path += "#" + idea.id
                 title, message = "Order status updated", "Open Observatory to review the broker's reported status."
+            elif event.kind == "research_report":
+                report = s.get(Analysis, event.payload.get("analysis_id"))
+                if not report or report.strategy_version != "catalyst-premium-hypothesis/v1":
+                    row.state = "expired"
+                    continue
+                path = "/trades#research"
+                title = "Research status updated"
+                message = "Review research findings and readiness blockers. No order was created."
             elif event.kind == "notification_test":
                 title, message = "Observatory notification test", "Phone notifications are working. No order was created or submitted."
             payload = {"id": event.id, "title": title, "body": message, "url": path,

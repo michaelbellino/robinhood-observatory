@@ -12,26 +12,40 @@ from urllib.parse import urlsplit
 from mcp.server.transport_security import TransportSecuritySettings
 from .rate_limit import RequestLimiter
 from authlib.integrations.starlette_client import OAuth
+from authlib.integrations.base_client import OAuthError
 from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import Field
 from starlette.middleware.sessions import SessionMiddleware
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from .broker import ReadOnlyBroker, BrokerError, Throttled
-from .db import Database, State, Audit, PaperProposal, Secret, now
-from .domain import Paper
+from .db import Database, State, Audit, PaperProposal, Secret, TradeIdea, Analysis, now
+from .domain import Paper, StrictModel
 from .oauth import RobinhoodOAuth, OAuthProblem
 from .enrollment import LocalEnrollment
-from .security import Vault, bearer_principal, principal, require_control
+from .security import Vault, bearer_principal, principal, require_control, owner_return_path, digest
 from .service import status, history, change_pause, start_observations
 from .market import market_status
 from .settings import Settings
-from . import rehearsal, assistant, trade_review, push, manual_orders
+from .release_health import release_evidence
+from . import rehearsal, assistant, trade_review, push, manual_orders, mandate, research
 
 STATIC = Path(__file__).parent / "static"
+
+
+class CompareResearchRequest(StrictModel):
+    candidates: list[research.ResearchCandidate] = Field(max_length=20)
+
+
+class ResearchSourceConfiguration(StrictModel):
+    request_id: uuid.UUID
+    sources: list[research.SECSource] = Field(max_length=5)
+    sec_user_agent: str = Field(min_length=3, max_length=200)
+    research_generation_enabled: bool = False
 
 
 def log_request_failure(exc):
@@ -72,6 +86,23 @@ def create_app(settings=None, database=None):
         "Observatory reads", instructions="Stored read-only monitoring data. No brokerage tools."
     )
     control = MCPServer("Observatory controls", instructions="Monitor controls and research proposals. No order submission tools.")
+
+    def compare_research(body):
+        with db.session() as session:
+            state = session.get(State, 1)
+            # Evaluate each candidate separately against server-owned evidence.
+            reports = [research.compare([candidate], now(), mandate.live_proposal_gate(session, state, candidate))
+                       for candidate in body.candidates]
+        combined = research.compare([], now())
+        combined["results"] = [result for report in reports for result in report["results"]]
+        combined["families_compared"] = sorted({family for report in reports for family in report["families_compared"]})
+        return combined
+
+    @control.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
+    async def screen_research_candidates(request: CompareResearchRequest) -> dict:
+        """Compare fully specified candidates and no trade. Never publish or submit an order."""
+        require_control()
+        return compare_research(request)
 
     @read.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
     async def monitor_status() -> dict:
@@ -233,6 +264,10 @@ def create_app(settings=None, database=None):
     async def liveness():
         return {"process": "alive"}  # Deliberately says nothing about broker/worker progress.
 
+    @app.get("/health/release")
+    def release_health():
+        return release_evidence(db)
+
     @app.get("/")
     async def dashboard():
         return FileResponse(STATIC / "index.html")
@@ -266,13 +301,31 @@ def create_app(settings=None, database=None):
             or (settings.auth_provider == "oidc" and settings.oidc_issuer)
         ):
             return JSONResponse({"detail": "Owner authentication has not been configured"}, status_code=503)
+        # Bind the destination to this OAuth attempt, not whichever tab last
+        # visited a page. Authlib still validates/consumes the OAuth state.
+        state = secrets.token_urlsafe(32)
+        destination = owner_return_path(
+            request.query_params.get("next", request.session.pop("enrollment_return", "/"))
+        )
+        returns = request.session.get("owner_login_returns", {})
+        returns = dict(list(returns.items())[-3:])
+        returns[digest(state)] = destination
+        request.session["owner_login_returns"] = returns
         return await oauth.owner.authorize_redirect(
-            request, settings.public_url.rstrip("/") + "/auth/callback"
+            request, settings.public_url.rstrip("/") + "/auth/callback", state=state
         )
 
     @app.get("/auth/callback")
     async def oidc_callback(request: Request):
-        token = await oauth.owner.authorize_access_token(request)
+        try:
+            token = await oauth.owner.authorize_access_token(request)
+        except OAuthError:
+            # Provider descriptions can contain sensitive/untrusted text. Keep
+            # canceled, expired and mismatched attempts out of the owner session.
+            returns = request.session.get("owner_login_returns", {})
+            returns.pop(digest(request.query_params.get("state", "")), None)
+            request.session["owner_login_returns"] = returns
+            return FileResponse(STATIC / "signin-error.html", status_code=400)
         if settings.auth_provider == "github":
             response = await oauth.owner.get("user", token=token)
             response.raise_for_status()
@@ -284,10 +337,12 @@ def create_app(settings=None, database=None):
         if not claims or claims.get("sub") != settings.owner_subject or claims.get("iss") != expected_issuer:
             request.session.clear()
             raise HTTPException(403, "This application is limited to its configured owner")
-        enrollment_return = request.session.get("enrollment_return", "/")
+        destination = owner_return_path(request.session.get("owner_login_returns", {}).get(
+            digest(request.query_params.get("state", "")), "/"
+        ))
         request.session.clear()
         request.session.update(sub=claims["sub"], csrf=secrets.token_urlsafe(32))
-        return RedirectResponse(enrollment_return, status_code=303)
+        return RedirectResponse(destination, status_code=303)
 
     @app.post("/api/logout")
     async def logout(request: Request):
@@ -304,11 +359,80 @@ def create_app(settings=None, database=None):
             raise HTTPException(403, "Use the signed-in owner dashboard")
         return actor
 
+    @app.get("/api/research-mandate")
+    async def get_research_mandate():
+        owner_session()
+        return mandate.get_current(db)
+
+    @app.post("/api/research-mandate")
+    async def confirm_research_mandate(body: mandate.MandateInput):
+        return mandate.save(db, vault, owner_session()["sub"], body)
+
+    @app.post("/api/research-mandate/disable")
+    async def disable_research_mandate(body: mandate.DisableInput):
+        return mandate.disable(db, owner_session()["sub"], body)
+
+    @app.post("/api/research/compare")
+    async def assess_research_candidates(body: CompareResearchRequest):
+        require_control()
+        return compare_research(body)
+
+    @app.get("/api/research/readiness")
+    async def research_readiness_status():
+        from .research_readiness import readiness
+        return readiness(db, settings)
+
+    @app.get("/api/research/reports")
+    async def research_reports():
+        with db.session() as session:
+            rows = session.scalars(select(Analysis).where(Analysis.strategy_version == research.VERSION)
+                                   .order_by(Analysis.created_at.desc()).limit(10)).all()
+            return {"execution": "research_only", "reports": [{
+                "id": row.id, "created_at": row.created_at,
+                "outcome": row.payload.get("outcome", "unknown"),
+                "leads": row.payload.get("leads", []),
+                "source_errors": row.payload.get("source_errors", []),
+                "limitations": row.payload.get("limitations", []),
+                "generation": row.payload.get("generation", {}),
+                "blockers": row.payload.get("gate", {}).get("reasons", []),
+                "published_proposal_count": len(row.payload.get("published_idea_ids", [])),
+            } for row in rows]}
+
+    @app.get("/api/research/sources")
+    async def research_sources():
+        owner_session()
+        with db.session() as session:
+            config = session.get(State, 1).config or {}
+            return {"sources": config.get("research_sources", []),
+                    "contact_configured": bool(config.get("research_sec_user_agent")),
+                    "research_generation_enabled": config.get("research_generation_enabled") is True,
+                    "limit": 5, "execution": "research_only"}
+
+    @app.post("/api/research/sources")
+    async def configure_research_sources(body: ResearchSourceConfiguration):
+        actor = owner_session()
+        config = {"research_sources": [x.model_dump(mode="json") for x in body.sources],
+                  "research_sec_user_agent": body.sec_user_agent,
+                  "research_generation_enabled": body.research_generation_enabled}
+        research.source_settings(config)
+        request_hash = rehearsal.fingerprint(config)
+        with db.session() as session:
+            state = session.scalar(select(State).where(State.id == 1).with_for_update())
+            prior = session.get(Audit, str(body.request_id))
+            details = {"config_hash": request_hash}
+            if prior:
+                if prior.actor != actor["sub"] or prior.action != "research_sources_configured" or prior.details != details:
+                    raise HTTPException(409, "Source configuration request ID conflict")
+                return {"saved": True, "repeated": True, "execution": "research_only"}
+            state.config = {**(state.config or {}), **config}
+            session.add(Audit(id=str(body.request_id), actor=actor["sub"], action="research_sources_configured", details=details))
+        return {"saved": True, "sources": config["research_sources"], "execution": "research_only"}
+
     @app.get("/api/trades")
     async def get_ideas():
         return {"ideas": trade_review.list_ideas(db), "execution_route": "manual_robinhood",
                 "submissions": manual_orders.get_results(db),
-                "automatic_recommendations": "external_proposal_producer_only",
+                "automatic_recommendations": "gated_research_requires_verified_configuration",
                 "analysis": status(db)["analysis"], "automatic_submission": False}
 
     @app.post("/api/trades/{ident}/revise")
@@ -317,7 +441,12 @@ def create_app(settings=None, database=None):
 
     @app.post("/api/trades/{ident}/reconcile")
     async def reconcile_order(ident: uuid.UUID):
-        owner_session()
+        actor = owner_session()
+        with db.session() as s:
+            row = s.get(TradeIdea, str(ident))
+            manual_id = row.broker_order_id if row and row.status == "observed_manual_order" else None
+        if manual_id:
+            return await trade_review.observe_manual_order(db, settings, vault, actor["sub"], ident, manual_id)
         return await manual_orders.reconcile(db, settings, vault, ident)
 
     @app.post("/api/trades")
@@ -345,7 +474,7 @@ def create_app(settings=None, database=None):
 
     @app.post("/api/trades/{ident}/link/{order_id}")
     async def link_idea_order(ident: uuid.UUID, order_id: uuid.UUID):
-        return trade_review.link_order(db, owner_session()["sub"], ident, order_id)
+        return await trade_review.observe_manual_order(db, settings, vault, owner_session()["sub"], ident, order_id)
 
     @app.get("/api/notifications")
     async def notification_status():
@@ -541,6 +670,8 @@ def create_app(settings=None, database=None):
                 raise HTTPException(
                     409, "Account rebinding requires an isolated database; histories must not mix"
                 )
+            # Stable opaque identity for this immutable account; cipher re-encryption is not identity.
+            row.account_binding = row.account_binding or str(uuid.uuid4())
             row.account_cipher = vault.encrypt(data["account"])
             row.account_label = "Agent account ••••" + data["account"][-4:]
             row.account_verified, row.paused, row.status = True, True, "paused"

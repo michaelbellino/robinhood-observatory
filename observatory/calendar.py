@@ -47,3 +47,41 @@ def next_full_session(at):
             if start > at:
                 return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
     raise ValueError("No upcoming session in calendar")
+
+
+def quote_session_context(name, at, source_times=()):
+    """Reference-calendar context only, never broker hours or quote validity.
+
+    A configured equity calendar describes regular sessions, not extended trading,
+    contract-specific options hours, halts or the broker's ability to accept orders.
+    Unknown mappings and calendar range failures deliberately remain unknown.
+    """
+    unknown = {"state": "unknown", "source": "unverified", "calendar": None,
+               "broker_session_verified": False, "quote_context": "unknown",
+               "next_regular_open": None, "previous_regular_close": None}
+    if name not in {"XNYS", "XNAS"}:
+        return unknown
+    try:
+        cal = calendar(name)
+        minute = pd.Timestamp(at).floor("min")
+        active = cal.is_open_on_minute(minute)
+        context = {**unknown, "state": "regular_open" if active else "outside_regular_session",
+                   "source": "configured_reference_calendar", "calendar": name}
+        if active:
+            context["quote_context"] = "current_regular_session_requires_fresh_quote"
+            return context
+        prior = cal.minute_to_session(minute, direction="previous")
+        close = cal.session_close(prior).to_pydatetime()
+        opening = cal.session_open(prior).to_pydatetime()
+        next_open = cal.next_open(minute).to_pydatetime()
+        context.update(previous_regular_close=close, next_regular_open=next_open)
+        stamps = tuple(source_times)
+        if len(stamps) == 2 and all(stamp is not None for stamp in stamps):
+            if all(opening <= stamp <= close for stamp in stamps):
+                context["quote_context"] = "prior_regular_session_not_current_quote"
+            else:
+                context["quote_context"] = "outside_prior_regular_session_or_older"
+        return context
+    except (ValueError, TypeError, KeyError, OverflowError):
+        # Expired calendar coverage is a data gap, not evidence that a market closed.
+        return unknown

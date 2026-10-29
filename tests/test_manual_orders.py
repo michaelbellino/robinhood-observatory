@@ -9,7 +9,7 @@ from fastapi import HTTPException
 
 from observatory import manual_orders as manual, trade_review as review
 from observatory.db import TradeIdea, OrderSubmission, State, now
-from tests.test_trade_review import idea_body, quote
+from tests.test_trade_review import quote
 from tests.test_rehearsal import owner_session
 
 
@@ -20,7 +20,8 @@ def ready(db, settings, asset="equity", custom_terms=None):
                  "legs": [{"option_id": str(uuid4()), "expiration": "2030-01-18", "strike": "100", "right": "call",
                            "side": "buy", "position_effect": "open", "multiplier": 100}]}
     terms = custom_terms or terms
-    idea = review.create(db, settings.owner_subject, review.NewIdea.model_validate(idea_body(terms=terms)))
+    idea = review.create_owner_ticket(db, settings.owner_subject,
+        review.OwnerTicket.model_validate({"request_id": str(uuid4()), "terms": terms}))
     t = review.Terms.model_validate(terms)
     preview = t.broker_arguments("SYNTHETIC-ACCOUNT") | {"order_checks": {}, "requested_terms": t.model_dump(mode="json")}
     if asset == "equity":

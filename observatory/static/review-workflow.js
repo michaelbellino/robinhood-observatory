@@ -6,6 +6,26 @@ const ReviewWorkflow = Object.freeze({
     line("Account",idea.account || "Unbound — create a new version before approval");
     line("Proposal version",idea.version || 1);
     line("Proposal created",new Date(idea.created_at).toLocaleString());
+    const research = idea.payload.research_candidate;
+    if (research) {
+      const details = document.createElement("details"), title = document.createElement("summary");
+      title.textContent = "Research evidence, risk and exit plan"; details.append(title); box.append(details);
+      const fact = (label, value) => { const p = document.createElement("p"); p.textContent = `${label}: ${value ?? "unavailable"}`; details.append(p); };
+      fact("Evidence mode", research.evidence_mode);
+      for (const [label, key] of [["Thesis", "thesis"], ["Counterargument", "counterargument"], ["Invalidation", "invalidation"], ["Already priced in", "priced_in_assessment"], ["Catalyst time", "catalyst_at"], ["Timing uncertainty", "catalyst_timing_uncertainty"], ["Volatility", "volatility_comparison"], ["Skew", "skew_assessment"], ["Liquidity", "liquidity_assessment"], ["Event risk", "event_risk"], ["Portfolio effect", "portfolio_effect"], ["Assignment and exercise", "assignment_and_exercise"], ["Expiration / early assignment / ex-dividend / pin risk", "expiration_early_assignment_ex_dividend_pin"], ["Alternative strategy", "alternative_long_or_premium"], ["No trade alternative", "no_trade_alternative"]]) fact(label, research[key]);
+      fact("Fees and slippage assumptions", `$${research.fees_usd} fees; $${research.slippage_usd} slippage. ${research.execution_assumptions}`);
+      const risk = idea.payload.risk_assessment, payoff = risk?.calculations?.payoff;
+      if (payoff) for (const [label, key] of [["Maximum gain at proposed entry", "max_gain_usd"], ["Maximum loss at proposed entry", "max_loss_usd"], ["Collateral required", "collateral_required_usd"], ["Assignment obligation", "assignment_obligation_usd"], ["Breakeven at expiration", "breakeven_at_expiration"]]) fact(label, payoff[key] == null ? "unavailable" : `$${payoff[key]}`);
+      if (payoff) { fact(payoff.cashflow === "credit" ? "Credit received, not realized profit" : "Premium debit", `$${payoff.premium_cashflow_usd}`); if (payoff.gain_description) fact("Gain range", payoff.gain_description); if (payoff.shares_required) fact("Verified shares required", payoff.shares_required); }
+      if (risk) fact("Risk basis", risk.risk_basis + ". " + risk.assignment_warning);
+      for (const leg of research.legs) {
+        const q = leg.quote;
+        fact("Contract quote", `${leg.contract.id} · bid $${q.bid ?? "unavailable"}, ask $${q.ask ?? "unavailable"} · source ${q.quoted_at ?? q.bid_at ?? "unknown"}, received ${q.received_at}`);
+        fact("Liquidity / volatility / Greeks", `Volume ${q.volume ?? "unavailable"}; open interest ${q.open_interest ?? "unavailable"}; IV ${q.implied_volatility ?? "unavailable"}; delta ${q.delta ?? "unavailable"}; gamma ${q.gamma ?? "unavailable"}; theta ${q.theta ?? "unavailable"}; vega ${q.vega ?? "unavailable"}; realized volatility ${research.realized_volatility ?? "unavailable"}`);
+      }
+      for (const trigger of research.exits) fact(trigger.purpose.replaceAll("_", " "), `${trigger.condition} · basis ${trigger.basis}${trigger.threshold == null ? "" : ", threshold " + trigger.threshold}${trigger.deadline ? ", deadline " + trigger.deadline : ""} · ${trigger.action} · ${trigger.mechanism}. ${trigger.justification} Failure modes: ${trigger.failure_modes}`);
+      for (const source of research.evidence) fact(source.publisher, `${source.title} · published ${source.published_at}, retrieved ${source.retrieved_at} · ${source.retrieval_status} · ${source.url} · ${source.claim}`);
+    }
     if(!preview) { line("Quote, estimated value and fees","Load a broker preview before approving"); return box; }
     const t=idea.payload.terms, q=preview.quote_data;
     if(q) {
@@ -18,7 +38,7 @@ const ReviewWorkflow = Object.freeze({
     for(const quote of preview.option_quotes || []) line("Contract quote time",`${quote.instrument_id}: ${quote.updated_at || "unknown"}`);
     line("Preview retrieved",new Date(idea.preview_at).toLocaleString());
     line("Fees",preview.fees ? JSON.stringify(preview.fees) : "Not supplied in this preview; do not assume zero");
-    line("Broker confirmation","If Robinhood requests final approval, complete it in Robinhood → the connected account → Activity. An unconfirmed order is not evidence that this approval is required.");
+    line("Final placement","Review and place any order yourself in Robinhood. An Observatory review is not a broker order or fill.");
     return box;
   },
   editor(idea,api,reload,notice) {
@@ -67,3 +87,4 @@ const ReviewWorkflow = Object.freeze({
     return details;
   }
 });
+
