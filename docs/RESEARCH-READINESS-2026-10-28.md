@@ -31,3 +31,17 @@ Research-only findings may be useful without proving portfolio suitability, but 
 research cycle still depends on a successful broker reconciliation and runs at most every four hours
 for an unchanged source configuration. That is not a breaking-news alert service. Future independent
 news scheduling/content acquisition must be explicitly implemented and verified before claiming it.
+
+## Bounded primary filing content follow-on
+
+The optional SEC adapter now derives primary-document archive URLs only from verified submission
+metadata, fetches at most two newest relevant filings per source pass, rejects redirects/foreign
+hosts/path traversal, limits each response to 2 MB and 15 seconds, and spaces requests by one second.
+It persists SEC backoff, reports unavailable content explicitly, strips executable/hidden markup,
+and retains up to 12,000 characters of plain text for review. Model evidence receives a much smaller
+attributed excerpt; omitted sections/exhibits may be material. Retrieved source text remains
+untrusted evidence and cannot supply instructions or override risk checks.
+
+This extends the earlier metadata-only capability; it does **not** add a model credential, a broad
+news feed, earnings calendar, options chain discovery, or prove a research edge. Runtime retrieval,
+configured universe/contact, and physical notification receipt still require separate verification.

@@ -53,7 +53,8 @@ def test_observed_metadata_is_not_actionable_or_worker_model_proof(db, settings)
     assert not result["actionable_proposals_ready"]
     assert result["model"]["configuration_complete"]
     assert not result["model"]["worker_configuration_verified"]
-    assert result["sources"]["content_scope"] == "sec_submission_metadata_only"
+    assert result["sources"]["content_scope"] == "sec_metadata_with_optional_bounded_primary_excerpts"
+    assert result["last_research"]["content_verified_count"] == 0
     serialized = json.dumps(result)
     for forbidden in ("DO-NOT-EXPOSE", "private-contact", "do-not-return", "Do not expose", "synthetic-binding"):
         assert forbidden not in serialized
@@ -108,3 +109,21 @@ def test_paused_monitor_does_not_show_ready_from_previous_run(db, settings):
     result = readiness(db, settings, at=at)
     assert not result["research_only_observed"]
     assert not result["monitor_active"]
+
+
+def test_content_count_requires_observed_verified_nonempty_excerpts(db, settings):
+    from sqlalchemy import select
+    at = configured_report(db)
+    with db.session() as session:
+        report = session.scalar(select(Analysis).where(Analysis.strategy_version == VERSION))
+        report.payload = {**report.payload, "leads": [
+            {"content_status": "verified", "content_excerpt": "PRIVATE-EXCERPT-NOT-RETURNED"},
+            {"content_status": "unavailable", "content_excerpt": "untrusted text"},
+            {"content_status": "verified", "content_excerpt": " "},
+            {"content_status": "verified"},
+            "malformed",
+        ]}
+    result = readiness(db, settings, at=at)
+    assert result["last_research"]["content_verified_count"] == 1
+    assert "PRIVATE-EXCERPT" not in json.dumps(result)
+    assert not result["actionable_proposals_ready"]

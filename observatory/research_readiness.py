@@ -75,6 +75,12 @@ def readiness(db, settings, *, at=None):
             ("key_configured", "model_configured", "pricing_configured", "positive_budget_configured"))
         errors = report.get("source_errors")
         errors = errors if isinstance(errors, list) else []
+        leads = report.get("leads")
+        leads = leads if isinstance(leads, list) else []
+        content_verified_count = sum(
+            1 for lead in leads if isinstance(lead, dict) and lead.get("content_status") == "verified"
+            and isinstance(lead.get("content_excerpt"), str) and bool(lead["content_excerpt"].strip())
+        )
         generation = report.get("generation")
         generation = generation if isinstance(generation, dict) else {}
         allowed_statuses = {"disabled", "insufficient_source_evidence", "insufficient_market_inputs",
@@ -107,17 +113,18 @@ def readiness(db, settings, *, at=None):
             "monitor_active": monitor_active,
             "broker_dependency": "Current research cycle runs only after successful authenticated account reconciliation.",
             "sources": {"valid": source_valid, "symbols": symbols, "contact_configured": contact_valid,
-                        "maximum_sources": 5, "content_scope": "sec_submission_metadata_only"},
+                        "maximum_sources": 5, "content_scope": "sec_metadata_with_optional_bounded_primary_excerpts"},
             "generation_enabled": config.get("research_generation_enabled") is True,
             "model": model,
             "last_research": {"observed": bool(latest), "created_at": stamp.isoformat() if stamp else None,
                               "fresh": recent, "current_account_generation": current_binding,
                               "current_source_configuration": config_matches,
                               "source_error_count": len(errors),
+                              "content_verified_count": content_verified_count,
                               "source_error_summary": "Source pass reported errors; review authenticated research history." if errors else None,
                               "generation_status": generation_status},
             "blockers": blockers,
-            "limitations": ["SEC metadata is not filing-content or broad news analysis.",
+            "limitations": ["Optional bounded primary filing excerpts are incomplete and do not establish broad news analysis.",
                             "Broad option-chain discovery is not implemented; existing collected contracts are reused.",
                             "No end-to-end notification receipt is established by this diagnostic.",
                             "Current-process settings do not establish worker configuration or remaining model budget."],
